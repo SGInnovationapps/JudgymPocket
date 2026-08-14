@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="JudgymPocket">
 <meta name="theme-color" content="#0C2160">
-<meta name="description" content="演技動画に記録する体操採点アプリ">
+<meta name="description" content="演技動画に直接記録する体操採点アプリ">
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" href="./icons/favicon.ico" sizes="any">
@@ -221,6 +221,20 @@
   .prog i{display:block;height:100%;width:0;background:var(--save)}
   .note{font-size:12.5px;color:var(--mute);line-height:1.65;margin:10px 0 0}
   .svbox{background:#0E1319;border-radius:10px;overflow:hidden;display:flex;justify-content:center}
+  .log{
+    margin-top:14px;padding:10px 12px;background:#F5F7FA;border-radius:8px;
+    font-size:11.5px;line-height:1.7;color:#5A6675;white-space:pre-wrap;word-break:break-all;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  .log:empty{display:none}
+  .toast{
+    position:fixed;left:50%;bottom:calc(84px + var(--safe-bottom));transform:translate(-50%,10px);
+    background:rgba(12,33,96,.94);color:#fff;font-size:13px;font-weight:700;
+    padding:11px 16px;border-radius:10px;z-index:70;opacity:0;pointer-events:none;
+    transition:opacity .18s ease,transform .18s ease;max-width:88vw;text-align:center;
+  }
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+  #expPrev video{width:100%;border-radius:10px;background:#000;margin-top:12px;display:block}
   .svbox canvas,.svbox img{display:block;max-width:100%;height:auto}
   .dg{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px;line-height:1.5}
   .dg b{flex:0 0 auto;width:20px;text-align:center}
@@ -261,6 +275,7 @@
     </div>
   </div>
 
+  <div class="toast" id="toast"></div>
   <div class="mode" id="modeE">
     <div class="pad">
       <div class="rowA">
@@ -360,15 +375,22 @@
 <!-- 書き出し -->
 <div class="sheet" id="exporting">
   <div class="card">
-    <h2>書き出し中</h2>
-    <p class="sub">動画を等倍で再生しながら合成しています。画面はそのままにしてください。</p>
+    <h2 id="expTitle">動画の書き出し</h2>
+    <p class="sub" id="expSub">動画を等倍で再生しながら合成します。終わるまで他の画面に移らないでください。</p>
+    <div id="startWrap" class="act">
+      <button class="btn primary" id="expStart">書き出しを開始</button>
+      <button class="btn ghost" id="cancelExp">やめる</button>
+    </div>
     <div class="prog"><i id="bar"></i></div>
-    <p class="sub" id="pct">0%</p>
+    <p class="sub" id="pct">—</p>
+    <div id="expPrev"></div>
     <div class="act" id="saveAct" style="display:none">
       <button class="btn primary" id="share">動画を保存 / 共有</button>
       <button class="btn ghost" id="dl">ダウンロード</button>
+      <button class="btn ghost" id="openTab">別タブで開く（長押しで保存）</button>
       <button class="btn ghost" id="closeExp">閉じる</button>
     </div>
+    <div id="expLog" class="log"></div>
   </div>
 </div>
 
@@ -947,29 +969,21 @@
       'video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1.42E01E','video/mp4',
       'video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'
     ];
-    return list.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    if (!window.MediaRecorder) return '';
+    return list.find(m => { try { return MediaRecorder.isTypeSupported(m); } catch(e){ return false; } }) || '';
   }
-  function roundRect(ctx, x, y, w, h, r){
-    ctx.beginPath();
-    ctx.moveTo(x+r, y);
-    ctx.arcTo(x+w, y, x+w, y+h, r);
-    ctx.arcTo(x+w, y+h, x, y+h, r);
-    ctx.arcTo(x, y+h, x, y, r);
-    ctx.arcTo(x, y, x+w, y, r);
-    ctx.closePath();
-  }
+
+  // 減点スタンプ: 右上に小さく、右からスライドイン
   function drawStamp(ctx, W, H, m, age, dur){
     const t = age / dur;
     const alpha = Math.max(0, Math.min(Math.min(1, age/0.15), Math.min(1, (1-t)/0.25)));
     const slide = (1 - Math.min(1, age/0.18)) * W * 0.04;
-    const bh = H * 0.075, r = bh * 0.24;
-    const pad = W * 0.025;
+    const bh = H * 0.075, r = bh * 0.24, pad = W * 0.025;
     ctx.save();
     ctx.font = `800 ${bh*0.6}px -apple-system,"Hiragino Sans",system-ui,sans-serif`;
     const label = '-' + m.label;
     const bw = ctx.measureText(label).width + bh * 0.85;
-    const x = W - pad - bw + slide;
-    const y = pad + m.slot * (bh * 1.16);
+    const x = W - pad - bw + slide, y = pad + m.slot * (bh * 1.16);
     ctx.globalAlpha = alpha;
     ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = H*0.018; ctx.shadowOffsetY = H*0.004;
     ctx.fillStyle = COLORS[m.label];
@@ -981,81 +995,200 @@
     ctx.restore();
   }
 
-  // 最終Eスコアを左上に大きく表示
-  function drawHud(ctx, W, H, e){
+  // 難度スタンプ: 右下に緑で、下から積み上げ
+  function drawDStamp(ctx, W, H, m, age, dur){
+    const t = age / dur;
+    const alpha = Math.max(0, Math.min(Math.min(1, age/0.15), Math.min(1, (1-t)/0.25)));
+    const slide = (1 - Math.min(1, age/0.18)) * W * 0.04;
+    const bh = H * 0.075, r = bh * 0.24, pad = W * 0.025;
+    ctx.save();
+    ctx.font = `800 ${bh*0.58}px -apple-system,"Hiragino Sans",system-ui,sans-serif`;
+    const bw = ctx.measureText(m.text).width + bh * 0.85;
+    const x = W - pad - bw + slide, y = H - pad - bh - m.slot * (bh * 1.16);
+    ctx.globalAlpha = alpha;
+    ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = H*0.018; ctx.shadowOffsetY = H*0.004;
+    ctx.fillStyle = '#12A44E';
+    roundRect(ctx, x, y, bw, bh, r); ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(m.text, x + bw/2, y + bh/2 + bh*0.02);
+    ctx.restore();
+  }
+
+  // 左上: 最終Eスコアを大きく、Dスコアがあれば下に併記
+  function drawHud(ctx, W, H, e, d){
     const pad = W * 0.025;
-    const lf = Math.max(11, H * 0.030), nf = H * 0.11;
+    const lf = Math.max(11, H * 0.030), nf = H * 0.11, sf = H * 0.042;
     ctx.save();
     ctx.textBaseline = 'middle';
     ctx.font = `800 ${nf}px -apple-system,system-ui,sans-serif`;
     const num = e.toFixed(2);
-    const nw = ctx.measureText(num).width;
-    const bw = nw + nf * 0.55, bh = nf * 1.52;
+    const sub = d == null ? '' : `D ${d.toFixed(1)}　計 ${(e + d).toFixed(2)}`;
+    ctx.font = `800 ${sf}px -apple-system,system-ui,sans-serif`;
+    const subW = sub ? ctx.measureText(sub).width : 0;
+    ctx.font = `800 ${nf}px -apple-system,system-ui,sans-serif`;
+    const bw = Math.max(ctx.measureText(num).width, subW) + nf * 0.55;
+    const bh = nf * 1.52 + (sub ? sf * 1.5 : 0);
     ctx.fillStyle = 'rgba(10,14,22,.5)';
-    roundRect(ctx, pad, pad, bw, bh, bh * 0.16); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,.8)';
+    roundRect(ctx, pad, pad, bw, bh, nf * 0.24); ctx.fill();
     ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,255,255,.8)';
     ctx.font = `800 ${lf}px -apple-system,system-ui,sans-serif`;
-    ctx.fillText('E SCORE', pad + nf * 0.28, pad + bh * 0.22);
+    ctx.fillText('E SCORE', pad + nf * 0.28, pad + nf * 0.34);
     ctx.fillStyle = '#fff';
     ctx.font = `800 ${nf}px -apple-system,system-ui,sans-serif`;
-    ctx.fillText(num, pad + nf * 0.28, pad + bh * 0.62);
+    ctx.fillText(num, pad + nf * 0.28, pad + nf * 0.95);
+    if (sub){
+      ctx.fillStyle = 'rgba(255,255,255,.92)';
+      ctx.font = `800 ${sf}px -apple-system,system-ui,sans-serif`;
+      ctx.fillText(sub, pad + nf * 0.28, pad + nf * 1.52 + sf * 0.7);
+    }
     ctx.restore();
   }
 
+  /* --- 書き出し本体 --- */
+  let expState = null, wakeLock = null;
+  const logLines = [];
+  const elog = (s) => { logLines.push(s); $('#expLog').textContent = logLines.join('\n'); };
+
   $('#export').onclick = () => doExport();
-  async function doExport(){
+  $('#cancelExp').onclick = () => { $('#exporting').classList.remove('on'); expState = null; };
+  $('#closeExp').onclick = () => $('#exporting').classList.remove('on');
+
+  function doExport(){
     if (!v.duration){ alert('先に動画を選んでください。'); return; }
-    if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream){
-      alert('このブラウザは動画の書き出しに対応していません。'); return;
-    }
-    const mime = pickMime();
-    if (!mime){ alert('対応する動画形式が見つかりませんでした。'); return; }
-    outExt = mime.includes('mp4') ? 'mp4' : 'webm';
-
-    const c = cfg();
-    const finalE = eScore();
-    const stamps = marks.map(m => ({ ...m, show: m.shot })).sort((a,b) => a.show - b.show);
-
+    logLines.length = 0;
+    $('#expLog').textContent = '';
+    $('#expPrev').innerHTML = '';
+    $('#saveAct').style.display = 'none';
+    $('#startWrap').style.display = '';
+    $('#bar').style.width = '0%';
+    $('#pct').textContent = '—';
+    $('#expTitle').textContent = '動画の書き出し';
     $('#result').classList.remove('on');
     $('#exporting').classList.add('on');
-    $('#saveAct').style.display = 'none';
-    $('#bar').style.width = '0%'; $('#pct').textContent = '0%';
+
+    const mime = pickMime();
+    outExt = mime.includes('mp4') ? 'mp4' : 'webm';
+    elog(`端末: ${navigator.userAgent.slice(0, 70)}`);
+    elog(`解像度: ${v.videoWidth}×${v.videoHeight} / 長さ: ${fmt(v.duration)}`);
+    elog(`形式: ${mime || '対応形式なし'}`);
+    elog(`MediaRecorder: ${window.MediaRecorder ? 'あり' : 'なし'} / canvas.captureStream: ${HTMLCanvasElement.prototype.captureStream ? 'あり' : 'なし'}`);
+
+    if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream || !mime){
+      $('#startWrap').style.display = 'none';
+      $('#expSub').textContent = 'このブラウザは動画の書き出しに対応していません。Chrome、または iOS 15 以降の Safari でお試しください。スクリーンショットの保存は利用できます。';
+      return;
+    }
+    $('#expSub').textContent = `書き出しには動画と同じ ${fmt(v.duration)} 前後かかります。開始を押すと最初から再生され、終わるまで画面を切り替えないでください。`;
+    v.pause();
+    try { v.currentTime = 0; } catch(e){}
+    expState = { mime };
+  }
+
+  // 開始はユーザー操作の中で play() を呼ぶ必要がある(Safari対策)
+  $('#expStart').onclick = () => {
+    if (!expState) return;
+    $('#startWrap').style.display = 'none';
+    $('#pct').textContent = '開始しています…';
+    try { runCapture(expState.mime); }
+    catch(err){ failExport(err); }
+  };
+
+  function failExport(err){
+    elog('エラー: ' + (err && err.message ? err.message : String(err)));
+    $('#expTitle').textContent = '書き出しに失敗しました';
+    $('#pct').textContent = '失敗';
+    $('#startWrap').style.display = '';
+    $('#expStart').textContent = 'やり直す';
+    if (wakeLock){ try { wakeLock.release(); } catch(e){} wakeLock = null; }
+  }
+
+  function runCapture(mime){
+    const c = cfg();
+    const finalE = eScore();
+    const finalD = dRecs.length ? calcD().total / 10 : null;
+    const stamps = marks.map(m => ({ ...m, show: m.shot })).sort((a,b) => a.show - b.show);
+    const dstamps = dRecs.filter(r => r.at > 0)
+      .map(r => ({ ...r, show: Math.max(0, r.at - c.offset), text: ROM[r.g] + r.d }))
+      .sort((a,b) => a.show - b.show);
 
     const W = v.videoWidth, H = v.videoHeight;
+    if (!W || !H) throw new Error('動画のサイズを取得できません');
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d');
+    ctx.drawImage(v, 0, 0, W, H);
 
     const stream = canvas.captureStream(30);
+    let audio = 'なし';
     try {
       const src = v.captureStream ? v.captureStream() : (v.mozCaptureStream ? v.mozCaptureStream() : null);
-      if (src) src.getAudioTracks().forEach(t => stream.addTrack(t));
-    } catch(e){}
+      const at = src ? src.getAudioTracks() : [];
+      at.forEach(t => stream.addTrack(t));
+      audio = at.length ? `${at.length}トラック` : 'なし(無音になります)';
+    } catch(e){ audio = '取得不可(無音になります)'; }
+    elog('音声: ' + audio);
 
     const chunks = [];
     const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000 });
-    rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    let stopped = false;
+    const stop = why => {
+      if (stopped) return;
+      stopped = true;
+      elog('停止: ' + why);
+      clearInterval(watch);
+      v.removeEventListener('ended', onEnd);
+      if (rec.state !== 'inactive') rec.stop();
+    };
+    const onEnd = () => stop('動画の終端');
+    v.addEventListener('ended', onEnd);
+
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onerror = e => failExport(e.error || new Error('MediaRecorder エラー'));
     rec.onstop = () => {
-      blobOut = new Blob(chunks, { type: mime });
-      $('#pct').textContent = '完了';
-      $('#bar').style.width = '100%';
-      $('#saveAct').style.display = '';
       v.volume = 1;
+      if (wakeLock){ try { wakeLock.release(); } catch(e){} wakeLock = null; }
+      const blob = new Blob(chunks, { type: mime });
+      elog(`データ: ${chunks.length}個 / ${(blob.size/1048576).toFixed(1)} MB`);
+      if (!blob.size){ failExport(new Error('データが空でした。別のブラウザでお試しください。')); return; }
+      blobOut = blob;
+      $('#expTitle').textContent = '書き出し完了';
+      $('#bar').style.width = '100%';
+      $('#pct').textContent = `完了（${(blob.size/1048576).toFixed(1)} MB）`;
+      $('#saveAct').style.display = '';
+      const url = URL.createObjectURL(blob);
+      $('#expPrev').innerHTML = `<video src="${url}" controls playsinline preload="metadata"></video>`;
+      $('#expSub').textContent = '下のプレビューで確認してから保存してください。保存できないときは「別タブで開く」から長押しで保存できます。';
     };
 
-    v.pause(); v.currentTime = 0; v.volume = 0.15;
-    await new Promise(r => { const h = () => { v.removeEventListener('seeked', h); r(); }; v.addEventListener('seeked', h); });
+    // 画面が消えると合成が止まるため、可能なら画面を点けたままにする
+    if (navigator.wakeLock && navigator.wakeLock.request){
+      navigator.wakeLock.request('screen').then(l => wakeLock = l).catch(() => {});
+    }
 
+    v.volume = 0.15;
+    const playing = v.play();               // ユーザー操作の直後に同期的に呼ぶ
     rec.start(250);
-    await v.play();
+    elog('録画開始');
+    if (playing && playing.catch) playing.catch(err => {
+      stop('再生できず');
+      failExport(new Error('動画を再生できませんでした（' + err.name + '）'));
+    });
+
+    // rAF が止まっても検知できるように監視する
+    let lastT = -1, stall = 0;
+    const watch = setInterval(() => {
+      if (stopped) return;
+      if (v.currentTime === lastT) stall++; else stall = 0;
+      lastT = v.currentTime;
+      if (v.ended) stop('終端(監視)');
+      else if (stall > 12) stop('進行が止まったため中断');
+    }, 500);
 
     (function draw(){
-      if (v.ended || v.paused){
-        ctx.drawImage(v, 0, 0, W, H);
-        if (rec.state === 'recording') rec.stop();
-        return;
-      }
+      if (stopped) return;
       const t = v.currentTime;
       ctx.drawImage(v, 0, 0, W, H);
       let slot = 0;
@@ -1063,28 +1196,52 @@
         const age = t - m.show;
         if (age >= 0 && age <= c.dur){ m.slot = slot++; drawStamp(ctx, W, H, m, age, c.dur); }
       }
-      drawHud(ctx, W, H, finalE);
+      let dslot = 0;
+      for (const m of dstamps){
+        const age = t - m.show;
+        if (age >= 0 && age <= c.dur){ m.slot = dslot++; drawDStamp(ctx, W, H, m, age, c.dur); }
+      }
+      drawHud(ctx, W, H, finalE, finalD);
       const p = Math.round(t / v.duration * 100);
-      $('#bar').style.width = p + '%'; $('#pct').textContent = p + '%';
+      $('#bar').style.width = p + '%';
+      $('#pct').textContent = p + '%';
+      if (v.ended || v.paused){ stop(v.ended ? '終端' : '一時停止'); return; }
       requestAnimationFrame(draw);
     })();
   }
 
+  /* --- 保存 --- */
   const outName = () => `${fileName}_E${eScore().toFixed(2)}.${outExt}`;
+
   $('#dl').onclick = () => {
     if (!blobOut) return;
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blobOut); a.download = outName(); a.click();
+    a.href = URL.createObjectURL(blobOut);
+    a.download = outName();
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+    elog('ダウンロードを実行しました');
+  };
+  $('#openTab').onclick = () => {
+    if (!blobOut) return;
+    const url = URL.createObjectURL(blobOut);
+    const w = window.open(url, '_blank');
+    if (!w) elog('別タブを開けませんでした（ポップアップがブロックされています）');
   };
   $('#share').onclick = async () => {
     if (!blobOut) return;
     const f = new File([blobOut], outName(), { type: blobOut.type });
     if (navigator.canShare && navigator.canShare({ files: [f] })){
-      try { await navigator.share({ files: [f], title: outName() }); return; } catch(e){ return; }
+      try { await navigator.share({ files: [f], title: outName() }); elog('共有しました'); return; }
+      catch(err){
+        if (err && err.name === 'AbortError'){ elog('共有をキャンセルしました'); return; }
+        elog('共有に失敗: ' + (err && err.name) + ' → ダウンロードに切り替えます');
+      }
+    } else {
+      elog('この端末はファイル共有に非対応 → ダウンロードに切り替えます');
     }
     $('#dl').click();
   };
-  $('#closeExp').onclick = () => $('#exporting').classList.remove('on');
 
   /* ============ Dスコア算出 ============ */
   const DV = { A:1, B:2, C:3, D:4, E:5, F:6, G:7, H:8, I:9 };
@@ -1117,10 +1274,27 @@
     if (!same){ pd = d; b.classList.add('sel'); }
   });
   function commitD(g, d){
+    if (g === 4){
+      // 終末技は1技のみ。すでにあれば置き換える
+      const prev = dRecs.find(r => r.g === 4);
+      if (prev){
+        dRecs = dRecs.filter(r => r.g !== 4);
+        toast(`終末技を ${ROM[4]}${prev.d} → ${ROM[4]}${d} に置き換えました`);
+      }
+    }
     dRecs.push({ id: Date.now() + Math.random(), g, d, val: DV[d], i: dseq++, at: v.duration ? v.currentTime : 0 });
     clearPend();
     if (navigator.vibrate) navigator.vibrate(14);
     renderD();
+  }
+
+  let toastTimer = null;
+  function toast(msg){
+    const el = $('#toast');
+    el.textContent = msg;
+    el.classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('on'), 2200);
   }
 
   // ①〜⑤の計算。小数誤差を避けるため内部は 0.1 = 1 の整数で扱う
@@ -1131,8 +1305,7 @@
       kept.push(...list.slice(0, 4));   // ① 同一グループは上位4つまで
       cut.push(...list.slice(4));
     }
-    const g4 = kept.filter(r => r.g === 4).sort((a,b) => b.val - a.val || a.i - b.i);
-    const dis = g4[0] || null;          // ② グループⅣ(終末技)
+    const dis = kept.find(r => r.g === 4) || null;   // ② 終末技(グループⅣは1技のみ)
     const rest = kept.filter(r => r !== dis).sort((a,b) => b.val - a.val || a.i - b.i);
     const seven = rest.slice(0, 7);     // ③ 残りから難度順に7技
     const over = rest.slice(7);
@@ -1182,7 +1355,7 @@
     $('#dCalc').textContent = `難度点 ${p1(res.diff)} ＋ グループ点 ${p1(res.grp)}`;
     $('#dSub').textContent = `記録 ${dRecs.length}技 ／ カウント ${res.counted.length}技`;
 
-    let h = '<div class="h">終末技（グループⅣ）</div>';
+    let h = '<div class="h">終末技（グループⅣ・1技）</div>';
     h += res.dis
       ? `<div class="r"><span>${dName(res.dis)}</span><span class="v">難度 ${p1(res.dis.val)}／グループ ${p1(Math.min(5, res.dis.val))}</span></div>`
       : '<div class="r off"><span>グループⅣの技なし</span><span class="v">0.0</span></div>';
