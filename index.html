@@ -7,8 +7,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="JudgymPocket">
 <meta name="theme-color" content="#0C2160">
-<meta name="description" content="演技動画に減点を記録して、スタンプ入り動画とEスコアを残す体操採点アプリ">
-<link rel="manifest" href="./manifest.webmanifest">
+<meta name="description" content="演技動画に記録する体操採点アプリ">
+<link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" href="./icons/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
@@ -47,6 +47,70 @@
     white-space:nowrap;user-select:none;
   }
   header .brand em{font-style:normal;color:#7FB4FF}
+  .seg{display:flex;background:rgba(255,255,255,.14);border-radius:8px;padding:3px;gap:3px;margin-left:auto;margin-right:12px}
+  .seg button{
+    background:none;border:0;color:#C9D6F2;font-size:13px;font-weight:700;
+    padding:7px 12px;border-radius:6px;cursor:pointer;white-space:nowrap;
+  }
+  .seg button.on{background:#fff;color:var(--navy)}
+  .mode{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+  .mode.hidden{display:none!important}
+
+  /* Dスコア画面 */
+  .dpad{flex:1 1 auto;display:grid;grid-template-columns:30% 1fr;gap:10px;padding:10px;min-height:0}
+  .grp{
+    display:grid;gap:8px;
+    grid-template-columns:1fr 1fr;
+    grid-template-rows:1fr 1fr 1fr;
+    grid-template-areas:"g1 ." "g2 ." "g3 g4";
+  }
+  .dif{
+    display:grid;gap:8px;
+    grid-template-columns:repeat(4,1fr);
+    grid-template-rows:1fr 1fr 1fr;
+    grid-template-areas:". a b c" "i . . d" "h g f e";
+  }
+  .gb,.db{
+    border:0;color:#fff;font-weight:800;cursor:pointer;border-radius:3px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:clamp(20px,6.4vw,34px);line-height:1;
+    transition:transform .06s ease,filter .06s ease,box-shadow .12s ease;
+  }
+  .gb{background:#12A44E}
+  .db{background:#4C74C7}
+  .gb:active,.db:active{transform:scale(.95);filter:brightness(.9)}
+  .gb.sel,.db.sel{box-shadow:0 0 0 4px #FFC400;filter:brightness(1.12)}
+  .gb:disabled,.db:disabled{opacity:.35}
+
+  .recs{
+    flex:0 0 auto;height:62px;border:1px solid #9AA6BC;border-radius:2px;margin:0 10px;
+    display:flex;align-items:center;gap:6px;padding:6px;overflow-x:auto;background:#fff;
+  }
+  .recs::-webkit-scrollbar{height:0}
+  .recs .hint{margin:auto;color:var(--mute);font-size:12px;text-align:center;padding:0 10px}
+  .rec{
+    position:relative;flex:0 0 auto;display:flex;align-items:center;gap:2px;
+    background:#EEF2F8;border:1px solid #C6D0DE;border-radius:6px;
+    padding:7px 9px;font-size:17px;font-weight:800;cursor:pointer;white-space:nowrap;
+  }
+  .rec .g{color:#0E8C43}
+  .rec .d{color:#2E56A6}
+  .rec.drop{opacity:.42;text-decoration:line-through}
+  .rec .x{
+    position:absolute;right:-5px;top:-6px;width:18px;height:18px;border:0;border-radius:50%;
+    background:#5A6675;color:#fff;font-size:12px;line-height:18px;padding:0;cursor:pointer;
+  }
+  #calc{
+    background:var(--save);color:#fff;border:0;border-radius:2px;
+    padding:14px 34px;font-size:26px;font-weight:800;cursor:pointer;letter-spacing:.08em;
+  }
+  .bd{border-top:1px solid var(--line);margin-top:4px}
+  .bd .h{font-size:12px;letter-spacing:.1em;color:var(--mute);padding:12px 0 4px;font-weight:800}
+  .bd .r{display:flex;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid var(--line);font-size:14.5px}
+  .bd .r .v{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:700}
+  .bd .r.off{color:#9AA4B2}
+  .bd .tot{display:flex;padding:12px 2px 0;font-size:16px;font-weight:800}
+  .bd .tot .v{margin-left:auto;font-variant-numeric:tabular-nums}
   #menuBtn{background:none;border:0;padding:6px;cursor:pointer;display:flex}
   #menuBtn span{display:block;width:34px;height:5px;background:#fff;border-radius:1px}
   #menuBtn div{display:flex;flex-direction:column;gap:7px}
@@ -156,6 +220,13 @@
   .prog{height:8px;background:#EDF0F4;border-radius:4px;overflow:hidden;margin:14px 0 6px}
   .prog i{display:block;height:100%;width:0;background:var(--save)}
   .note{font-size:12.5px;color:var(--mute);line-height:1.65;margin:10px 0 0}
+  .svbox{background:#0E1319;border-radius:10px;overflow:hidden;display:flex;justify-content:center}
+  .svbox canvas,.svbox img{display:block;max-width:100%;height:auto}
+  .dg{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px;line-height:1.5}
+  .dg b{flex:0 0 auto;width:20px;text-align:center}
+  .dg .ok{color:#0FA958} .dg .ng{color:#C60D0D} .dg .wm{color:#E8842C}
+  .dg span{color:#3C4756}
+  .dg small{display:block;color:var(--mute);font-size:12px;margin-top:2px}
   .hidden{display:none!important}
 </style>
 </head>
@@ -164,6 +235,10 @@
 
   <header>
     <h1 class="brand">Judgym<em>Pocket</em></h1>
+    <div class="seg" id="seg">
+      <button class="on" data-mode="E">E採点</button>
+      <button data-mode="D">D算出</button>
+    </div>
     <button id="menuBtn" aria-label="メニュー"><div><span></span><span></span><span></span></div></button>
   </header>
 
@@ -186,24 +261,57 @@
     </div>
   </div>
 
-  <div class="pad">
-    <div class="rowA">
-      <button class="ded b03" data-v="0.3" disabled>-0.3</button>
-      <button class="ded b05" data-v="0.5" disabled>-0.5</button>
-      <button class="ded b01" data-v="0.1" disabled>-0.1</button>
+  <div class="mode" id="modeE">
+    <div class="pad">
+      <div class="rowA">
+        <button class="ded b03" data-v="0.3" disabled>-0.3</button>
+        <button class="ded b05" data-v="0.5" disabled>-0.5</button>
+        <button class="ded b01" data-v="0.1" disabled>-0.1</button>
+      </div>
+      <div class="rowB">
+        <button class="ded b10" data-v="1.0" disabled>-1.0</button>
+      </div>
     </div>
-    <div class="rowB">
-      <button class="ded b10" data-v="1.0" disabled>-1.0</button>
+
+    <div class="strip" id="strip">
+      <div class="hint" id="hint">減点を押すと、その0.5秒前の画像がここに並びます</div>
+    </div>
+
+    <div class="bottom">
+      <button id="save" disabled>保存</button>
+      <div class="escore"><span class="l">Eスコア</span><span class="n" id="eNow">10.00</span></div>
     </div>
   </div>
 
-  <div class="strip" id="strip">
-    <div class="hint" id="hint">減点を押すと、その0.5秒前の画像がここに並びます</div>
-  </div>
+  <div class="mode hidden" id="modeD">
+    <div class="dpad">
+      <div class="grp">
+        <button class="gb" data-g="1" style="grid-area:g1">Ⅰ</button>
+        <button class="gb" data-g="2" style="grid-area:g2">Ⅱ</button>
+        <button class="gb" data-g="3" style="grid-area:g3">Ⅲ</button>
+        <button class="gb" data-g="4" style="grid-area:g4">Ⅳ</button>
+      </div>
+      <div class="dif">
+        <button class="db" data-d="A" style="grid-area:a">A</button>
+        <button class="db" data-d="B" style="grid-area:b">B</button>
+        <button class="db" data-d="C" style="grid-area:c">C</button>
+        <button class="db" data-d="D" style="grid-area:d">D</button>
+        <button class="db" data-d="E" style="grid-area:e">E</button>
+        <button class="db" data-d="F" style="grid-area:f">F</button>
+        <button class="db" data-d="G" style="grid-area:g">G</button>
+        <button class="db" data-d="H" style="grid-area:h">H</button>
+        <button class="db" data-d="I" style="grid-area:i">I</button>
+      </div>
+    </div>
 
-  <div class="bottom">
-    <button id="save" disabled>保存</button>
-    <div class="escore"><span class="l">Eスコア</span><span class="n" id="eNow">10.00</span></div>
+    <div class="recs" id="recs">
+      <div class="hint" id="dhint">グループ → 難度（順不同）でタップすると、ここに技が並びます</div>
+    </div>
+
+    <div class="bottom">
+      <button id="calc">算出</button>
+      <div class="escore"><span class="l">Dスコア</span><span class="n" id="dNow">0.0</span></div>
+    </div>
   </div>
 </div>
 
@@ -217,8 +325,12 @@
     <div class="act">
       <button class="btn ghost" id="mPick">別の動画を選ぶ</button>
       <button class="btn ghost" id="mExport">スタンプ入り動画を書き出す</button>
+      <button class="btn ghost" id="mSaveAll">スクショを全部保存</button>
+      <button class="btn ghost" id="mSheet">スクショを1枚の一覧画像で保存</button>
       <button class="btn ghost" id="mCopy">結果をテキストでコピー</button>
       <button class="btn ghost" id="mSettings">設定</button>
+      <button class="btn ghost" id="mInstall">ホーム画面に追加</button>
+      <button class="btn ghost" id="mDiag">インストール診断</button>
       <button class="btn ghost" id="mReset">この演技をリセット</button>
       <button class="btn primary" id="mClose">閉じる</button>
     </div>
@@ -256,6 +368,53 @@
       <button class="btn primary" id="share">動画を保存 / 共有</button>
       <button class="btn ghost" id="dl">ダウンロード</button>
       <button class="btn ghost" id="closeExp">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dスコア内訳 -->
+<div class="sheet" id="dres">
+  <div class="card">
+    <h2>Dスコア</h2>
+    <p class="sub" id="dSub"></p>
+    <div class="score" style="background:#12A44E">
+      <div class="lab">D SCORE</div>
+      <div class="val" id="dVal">0.0</div>
+      <div class="sml" id="dCalc"></div>
+    </div>
+    <div class="bd" id="dBreak"></div>
+    <div class="act">
+      <button class="btn primary" id="dApply">Eスコアの控えに反映して閉じる</button>
+      <button class="btn ghost" id="dCopy">内訳をテキストでコピー</button>
+      <button class="btn ghost" id="dClose">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- スクショ拡大 -->
+<div class="sheet" id="shotView">
+  <div class="card">
+    <h2 id="svTitle">スクリーンショット</h2>
+    <p class="sub" id="svSub"></p>
+    <div id="svBox" class="svbox"></div>
+    <div class="act">
+      <button class="btn primary" id="svSave">この画像を保存</button>
+      <button class="btn ghost" id="svSeek">この位置から再生</button>
+      <button class="btn ghost" id="svDel">この減点を削除</button>
+      <button class="btn ghost" id="svClose">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 診断 -->
+<div class="sheet" id="diag">
+  <div class="card">
+    <h2>インストール診断</h2>
+    <p class="sub">ホーム画面のアイコンが出ないときの原因を調べます。</p>
+    <div id="diagOut"></div>
+    <div class="act">
+      <button class="btn ghost" id="diagCopy">結果をコピー</button>
+      <button class="btn primary" id="diagClose">閉じる</button>
     </div>
   </div>
 </div>
@@ -338,14 +497,14 @@
   const shadow = document.createElement('video');
   shadow.muted = true; shadow.playsInline = true; shadow.preload = 'auto';
   let queue = Promise.resolve();
-  function grabBySeek(target){
+  function grabBySeek(target, height){
     queue = queue.then(() => new Promise(res => {
       let done = false;
       const finish = ok => { if (done) return; done = true; cleanup(); res(ok ? snap() : null); };
       const snap = () => {
         if (!shadow.videoWidth) return null;
         const c = document.createElement('canvas');
-        c.height = THUMB_H * 2;
+        c.height = height || shadow.videoHeight;
         c.width = Math.round(c.height * shadow.videoWidth / shadow.videoHeight);
         c.getContext('2d').drawImage(shadow, 0, 0, c.width, c.height);
         return c;
@@ -429,7 +588,7 @@
         c2.getContext('2d').drawImage(hit.c, 0, 0);
         m.thumb = c2; paintShot(el, m);
       } else {
-        const got = await grabBySeek(shot);
+        const got = await grabBySeek(shot, THUMB_H * 2);
         if (got){ m.thumb = got; paintShot(el, m); }
         else el.querySelector('.load').textContent = '取得不可';
       }
@@ -451,7 +610,7 @@
         if (!marks.length) $('#hint').style.display = '';
         return;
       }
-      v.pause(); v.currentTime = m.shot;
+      openShot(m);
     });
     strip.appendChild(el);
     strip.scrollLeft = strip.scrollWidth;
@@ -487,6 +646,139 @@
     });
   }
 
+  /* ============ スクショの保存 ============ */
+  let viewing = null;
+
+  // 元解像度で切り出し、右上に減点タグ・左下に時刻を焼き込む
+  async function fullShot(m){
+    const c = await grabBySeek(m.shot, 0);
+    if (!c) return null;
+    const ctx = c.getContext('2d'), W = c.width, H = c.height;
+    const pad = Math.round(W * 0.025);
+    const fs = Math.max(16, Math.round(H * 0.062));
+    ctx.font = `800 ${fs}px -apple-system,"Hiragino Sans",system-ui,sans-serif`;
+    const label = '-' + m.label;
+    const tw = ctx.measureText(label).width + fs * 0.9, th = fs * 1.5;
+    ctx.fillStyle = COLORS[m.label];
+    roundRect(ctx, W - pad - tw, pad, tw, th, th * 0.25); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, W - pad - tw / 2, pad + th / 2);
+
+    const sf = Math.max(12, Math.round(H * 0.038));
+    ctx.font = `700 ${sf}px -apple-system,system-ui,sans-serif`;
+    const st = stampTime(m.shot), sw = ctx.measureText(st).width + sf, sh = sf * 1.6;
+    ctx.fillStyle = 'rgba(10,14,22,.6)';
+    roundRect(ctx, pad, H - pad - sh, sw, sh, sh / 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.fillText(st, pad + sw / 2, H - pad - sh / 2);
+    return c;
+  }
+
+  const shotName = m => {
+    const i = [...marks].sort((a,b) => a.at - b.at).indexOf(m) + 1;
+    return `${fileName}_${String(i).padStart(2,'0')}_${m.label}_${stampTime(m.shot).replace(':','-')}.png`;
+  };
+  const toBlob = c => new Promise(r => c.toBlob(r, 'image/png'));
+
+  async function saveCanvas(canvas, name){
+    const blob = await toBlob(canvas);
+    if (!blob) return false;
+    const f = new File([blob], name, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [f] })){
+      try { await navigator.share({ files: [f], title: name }); return true; } catch(e){ return false; }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    return true;
+  }
+
+  async function openShot(m){
+    viewing = m;
+    $('#svTitle').textContent = `-${m.label} の場面`;
+    $('#svSub').textContent = `押した位置 ${stampTime(m.at)} / 切り出し ${stampTime(m.shot)}`;
+    const box = $('#svBox'); box.innerHTML = '';
+    if (m.thumb){ const p = document.createElement('canvas'); p.width = m.thumb.width; p.height = m.thumb.height;
+      p.getContext('2d').drawImage(m.thumb, 0, 0); box.appendChild(p); }
+    $('#shotView').classList.add('on');
+    const full = await fullShot(m);
+    if (full){ m.full = full; box.innerHTML = ''; box.appendChild(full); }
+  }
+  $('#svClose').onclick = () => $('#shotView').classList.remove('on');
+  $('#svSeek').onclick = () => { if (viewing){ v.currentTime = viewing.shot; $('#shotView').classList.remove('on'); } };
+  $('#svDel').onclick = () => {
+    if (!viewing) return;
+    marks = marks.filter(x => x.id !== viewing.id);
+    redrawShots(); render(); $('#shotView').classList.remove('on');
+  };
+  $('#svSave').onclick = async () => {
+    if (!viewing) return;
+    const b = $('#svSave'), t = b.textContent; b.textContent = '準備中…';
+    const c = viewing.full || await fullShot(viewing);
+    await saveCanvas(c, shotName(viewing));
+    b.textContent = t;
+  };
+
+  $('#mSaveAll').onclick = async () => {
+    if (!marks.length){ alert('スクリーンショットがありません。'); return; }
+    const b = $('#mSaveAll'), t = b.textContent;
+    const list = [...marks].sort((a,b2) => a.at - b2.at);
+    const files = [];
+    for (let i = 0; i < list.length; i++){
+      b.textContent = `準備中… ${i+1}/${list.length}`;
+      const c = list[i].full || await fullShot(list[i]);
+      if (!c) continue;
+      list[i].full = c;
+      const blob = await toBlob(c);
+      if (blob) files.push(new File([blob], shotName(list[i]), { type: 'image/png' }));
+    }
+    b.textContent = t;
+    if (navigator.canShare && files.length && navigator.canShare({ files })){
+      try { await navigator.share({ files, title: fileName }); return; } catch(e){ return; }
+    }
+    for (const f of files){
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(f); a.download = f.name; a.click();
+      await new Promise(r => setTimeout(r, 400));
+      URL.revokeObjectURL(a.href);
+    }
+  };
+
+  $('#mSheet').onclick = async () => {
+    if (!marks.length){ alert('スクリーンショットがありません。'); return; }
+    const b = $('#mSheet'), t = b.textContent;
+    const list = [...marks].sort((a,b2) => a.at - b2.at);
+    const cols = list.length <= 2 ? 1 : 2, cw = 720;
+    const shots = [];
+    for (let i = 0; i < list.length; i++){
+      b.textContent = `準備中… ${i+1}/${list.length}`;
+      const c = list[i].full || await fullShot(list[i]);
+      if (c){ list[i].full = c; shots.push(c); }
+    }
+    b.textContent = t;
+    if (!shots.length) return;
+    const ch = Math.round(cw * shots[0].height / shots[0].width);
+    const rows = Math.ceil(shots.length / cols), gap = 14, head = 96;
+    const sheet = document.createElement('canvas');
+    sheet.width = cols * cw + gap * (cols + 1);
+    sheet.height = head + rows * ch + gap * (rows + 1);
+    const x = sheet.getContext('2d');
+    x.fillStyle = '#0C2160'; x.fillRect(0, 0, sheet.width, sheet.height);
+    x.fillStyle = '#fff'; x.textBaseline = 'middle';
+    x.textAlign = 'left';
+    x.font = '800 40px -apple-system,"Hiragino Sans",system-ui,sans-serif';
+    x.fillText(fileName, gap + 8, head / 2);
+    x.textAlign = 'right';
+    x.font = '800 44px -apple-system,system-ui,sans-serif';
+    x.fillText(`E ${eScore().toFixed(2)}　減点 ${total().toFixed(1)}`, sheet.width - gap - 8, head / 2);
+    shots.forEach((c, i) => {
+      const px = gap + (i % cols) * (cw + gap);
+      const py = head + gap + Math.floor(i / cols) * (ch + gap);
+      x.drawImage(c, px, py, cw, ch);
+    });
+    await saveCanvas(sheet, `${fileName}_scores_E${eScore().toFixed(2)}.png`);
+  };
+
   /* ============ メニュー / 設定 ============ */
   $('#menuBtn').onclick = () => {
     $('#menuSub').textContent = v.duration ? `${fileName}　減点 ${marks.length}件` : '動画が未選択です';
@@ -495,9 +787,118 @@
   $('#mClose').onclick = () => $('#menu').classList.remove('on');
   $('#mSettings').onclick = () => { $('#menu').classList.remove('on'); $('#settings').classList.add('on'); };
   $('#closeSet').onclick = () => $('#settings').classList.remove('on');
-  $('#mReset').onclick = () => { marks = []; redrawShots(); render(); $('#menu').classList.remove('on'); };
+  $('#mReset').onclick = () => {
+    marks = []; dRecs = []; clearPend();
+    redrawShots(); render(); renderD();
+    $('#menu').classList.remove('on');
+  };
   $('#mExport').onclick = () => { $('#menu').classList.remove('on'); doExport(); };
   $('#mCopy').onclick = () => copyText($('#mCopy'));
+
+  /* ============ インストール(ホーム画面に追加) ============ */
+  let deferred = null, promptFired = false;
+  addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; promptFired = true; });
+  addEventListener('appinstalled', () => { deferred = null; });
+
+  $('#mInstall').onclick = async () => {
+    if (deferred){
+      deferred.prompt();
+      await deferred.userChoice;
+      deferred = null;
+      $('#menu').classList.remove('on');
+      return;
+    }
+    const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    alert(ios
+      ? 'Safari の共有ボタン（□に↑）から「ホーム画面に追加」を選んでください。'
+      : 'この環境では自動で追加できません。「インストール診断」で原因を確認してください。');
+  };
+
+  $('#mDiag').onclick = () => { $('#menu').classList.remove('on'); runDiag(); };
+  $('#diagClose').onclick = () => $('#diag').classList.remove('on');
+  $('#diagCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText($('#diagOut').innerText); $('#diagCopy').textContent = 'コピーしました'; }
+    catch { $('#diagCopy').textContent = 'コピーできませんでした'; }
+    setTimeout(() => $('#diagCopy').textContent = '結果をコピー', 1600);
+  };
+
+  async function runDiag(){
+    const out = $('#diagOut');
+    out.innerHTML = '<p class="sub">確認中…</p>';
+    $('#diag').classList.add('on');
+    const rows = [];
+    const add = (state, title, detail) => rows.push({ state, title, detail });
+
+    // 1. HTTPS
+    const secure = location.protocol === 'https:' || location.hostname === 'localhost';
+    add(secure ? 'ok' : 'ng', `配信方法: ${location.protocol}//${location.host || '(なし)'}`,
+      secure ? null : 'https でないとインストールできません。GitHub Pages などに置いて https で開いてください。file:// で直接開いた場合もここで止まります。');
+
+    // 2. manifest リンク
+    const link = document.querySelector('link[rel="manifest"]');
+    add(link ? 'ok' : 'ng', 'manifest のリンク', link ? link.href : 'index.html に manifest のリンクがありません。');
+
+    // 3. manifest の取得と中身
+    let mf = null;
+    if (link){
+      try {
+        const r = await fetch(link.href, { cache: 'no-store' });
+        const ct = r.headers.get('content-type') || '(不明)';
+        if (!r.ok) add('ng', `manifest の取得に失敗 (${r.status})`, 'ファイル名・大文字小文字・配置場所を確認してください。');
+        else {
+          const txt = await r.text();
+          try {
+            mf = JSON.parse(txt);
+            add('ok', 'manifest を読み込めた', `Content-Type: ${ct} / name: ${mf.name} / display: ${mf.display}`);
+          } catch(e){
+            add('ng', 'manifest の JSON が壊れている', 'カンマや括弧の書き間違いがないか確認してください。');
+          }
+        }
+      } catch(e){ add('ng', 'manifest を取得できない', String(e)); }
+    }
+
+    // 4. アイコンの実在確認
+    if (mf && Array.isArray(mf.icons)){
+      const base = new URL(link.href);
+      let ng = 0, names = [];
+      for (const ic of mf.icons){
+        try {
+          const r = await fetch(new URL(ic.src, base).href, { cache: 'no-store' });
+          if (!r.ok){ ng++; names.push(`${ic.src} (${r.status})`); }
+        } catch(e){ ng++; names.push(ic.src); }
+      }
+      const has192 = mf.icons.some(i => (i.sizes || '').includes('192'));
+      const has512 = mf.icons.some(i => (i.sizes || '').includes('512'));
+      const maskable = mf.icons.some(i => (i.purpose || '').includes('maskable'));
+      add(ng ? 'ng' : 'ok', `アイコン ${mf.icons.length} 件中 ${mf.icons.length - ng} 件が取得可能`,
+        ng ? `見つからない: ${names.join(', ')}　icons フォルダを push できているか、ファイル名の大文字小文字を確認してください。` : null);
+      add(has192 && has512 ? 'ok' : 'ng', `192px: ${has192 ? 'あり' : 'なし'} / 512px: ${has512 ? 'あり' : 'なし'}`,
+        has192 && has512 ? null : 'Android は 192px と 512px の両方を要求します。');
+      add(maskable ? 'ok' : 'wm', `maskable アイコン: ${maskable ? 'あり' : 'なし'}`,
+        maskable ? null : 'なくても追加はできますが、丸型に切り抜かれたときに欠けます。');
+    }
+
+    // 5. Service Worker
+    if ('serviceWorker' in navigator){
+      const reg = await navigator.serviceWorker.getRegistration();
+      add(reg ? 'ok' : (secure ? 'ng' : 'wm'), `Service Worker: ${reg ? '登録済み' : '未登録'}`,
+        reg ? `scope: ${reg.scope}` : 'https で開き直してからページを再読み込みしてください。');
+    } else add('ng', 'Service Worker 非対応のブラウザ', 'Chrome か Edge で開いてください。');
+
+    // 6. インストール可能判定
+    const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+    if (standalone) add('ok', 'すでにホーム画面から起動中', null);
+    else add(promptFired ? 'ok' : 'wm', `インストール要件の判定: ${promptFired ? '満たしている' : 'まだ通知が来ていない'}`,
+      promptFired ? 'メニューの「ホーム画面に追加」から追加できます。' :
+      'Chrome は数秒の閲覧のあとに判定します。ページを再読み込みして 10 秒ほど待ってから、もう一度この診断を開いてください。それでも変わらない場合は上の項目に ✕ が付いているはずです。');
+
+    add('wm', `ブラウザ: ${navigator.userAgent.slice(0, 90)}`, null);
+
+    out.innerHTML = rows.map(r => {
+      const mark = r.state === 'ok' ? '✓' : r.state === 'ng' ? '✕' : '!';
+      return `<div class="dg"><b class="${r.state}">${mark}</b><span>${r.title}${r.detail ? `<small>${r.detail}</small>` : ''}</span></div>`;
+    }).join('');
+  }
 
   /* ============ 保存(結果) ============ */
   $('#save').onclick = () => {
@@ -559,32 +960,46 @@
   }
   function drawStamp(ctx, W, H, m, age, dur){
     const t = age / dur;
-    const alpha = Math.max(0, Math.min(Math.min(1, age/0.18), Math.min(1, (1-t)/0.25)));
-    const pop = 1 + 0.14 * Math.max(0, 1 - age/0.22);
-    const bw = W*0.28*pop, bh = bw*0.42, r = bh*0.22;
-    const x = W/2 - bw/2, y = H - bh - H*0.12 - m.slot*(bh*1.12);
+    const alpha = Math.max(0, Math.min(Math.min(1, age/0.15), Math.min(1, (1-t)/0.25)));
+    const slide = (1 - Math.min(1, age/0.18)) * W * 0.04;
+    const bh = H * 0.075, r = bh * 0.24;
+    const pad = W * 0.025;
     ctx.save();
+    ctx.font = `800 ${bh*0.6}px -apple-system,"Hiragino Sans",system-ui,sans-serif`;
+    const label = '-' + m.label;
+    const bw = ctx.measureText(label).width + bh * 0.85;
+    const x = W - pad - bw + slide;
+    const y = pad + m.slot * (bh * 1.16);
     ctx.globalAlpha = alpha;
-    ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = H*0.02; ctx.shadowOffsetY = H*0.006;
+    ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = H*0.018; ctx.shadowOffsetY = H*0.004;
     ctx.fillStyle = COLORS[m.label];
     roundRect(ctx, x, y, bw, bh, r); ctx.fill();
     ctx.shadowColor = 'transparent';
     ctx.fillStyle = '#fff';
-    ctx.font = `800 ${bh*0.58}px -apple-system,"Hiragino Sans",system-ui,sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('-' + m.label, x + bw/2, y + bh/2 + bh*0.02);
+    ctx.fillText(label, x + bw/2, y + bh/2 + bh*0.02);
     ctx.restore();
   }
+
+  // 最終Eスコアを左上に大きく表示
   function drawHud(ctx, W, H, e){
-    const pad = W*0.03, fs = H*0.045;
+    const pad = W * 0.025;
+    const lf = Math.max(11, H * 0.030), nf = H * 0.11;
     ctx.save();
-    ctx.font = `800 ${fs}px -apple-system,system-ui,sans-serif`;
-    const txt = 'E ' + e.toFixed(2);
-    const w = ctx.measureText(txt).width + fs*0.9, bh = fs*1.5;
-    ctx.fillStyle = 'rgba(10,14,22,.55)';
-    roundRect(ctx, pad, pad, w, bh, bh/2); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(txt, pad + w/2, pad + bh/2);
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 ${nf}px -apple-system,system-ui,sans-serif`;
+    const num = e.toFixed(2);
+    const nw = ctx.measureText(num).width;
+    const bw = nw + nf * 0.55, bh = nf * 1.52;
+    ctx.fillStyle = 'rgba(10,14,22,.5)';
+    roundRect(ctx, pad, pad, bw, bh, bh * 0.16); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.8)';
+    ctx.textAlign = 'left';
+    ctx.font = `800 ${lf}px -apple-system,system-ui,sans-serif`;
+    ctx.fillText('E SCORE', pad + nf * 0.28, pad + bh * 0.22);
+    ctx.fillStyle = '#fff';
+    ctx.font = `800 ${nf}px -apple-system,system-ui,sans-serif`;
+    ctx.fillText(num, pad + nf * 0.28, pad + bh * 0.62);
     ctx.restore();
   }
 
@@ -599,6 +1014,7 @@
     outExt = mime.includes('mp4') ? 'mp4' : 'webm';
 
     const c = cfg();
+    const finalE = eScore();
     const stamps = marks.map(m => ({ ...m, show: m.shot })).sort((a,b) => a.show - b.show);
 
     $('#result').classList.remove('on');
@@ -642,13 +1058,12 @@
       }
       const t = v.currentTime;
       ctx.drawImage(v, 0, 0, W, H);
-      let slot = 0, run = 0;
+      let slot = 0;
       for (const m of stamps){
-        if (m.at <= t) run += m.value;
         const age = t - m.show;
         if (age >= 0 && age <= c.dur){ m.slot = slot++; drawStamp(ctx, W, H, m, age, c.dur); }
       }
-      drawHud(ctx, W, H, Math.max(0, 10 - run));
+      drawHud(ctx, W, H, finalE);
       const p = Math.round(t / v.duration * 100);
       $('#bar').style.width = p + '%'; $('#pct').textContent = p + '%';
       requestAnimationFrame(draw);
@@ -670,6 +1085,155 @@
     $('#dl').click();
   };
   $('#closeExp').onclick = () => $('#exporting').classList.remove('on');
+
+  /* ============ Dスコア算出 ============ */
+  const DV = { A:1, B:2, C:3, D:4, E:5, F:6, G:7, H:8, I:9 };
+  const ROM = ['', 'Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ'];
+  const p1 = n => (n / 10).toFixed(1);
+  let dRecs = [], pg = null, pd = null, dseq = 0;
+
+  $('#seg').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $('#seg').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    const d = b.dataset.mode === 'D';
+    $('#modeD').classList.toggle('hidden', !d);
+    $('#modeE').classList.toggle('hidden', d);
+  });
+
+  const clearPend = () => {
+    pg = pd = null;
+    document.querySelectorAll('.gb,.db').forEach(b => b.classList.remove('sel'));
+  };
+  document.querySelectorAll('.gb').forEach(b => b.onclick = () => {
+    const g = +b.dataset.g;
+    if (pd) return commitD(g, pd);
+    const same = pg === g; clearPend();
+    if (!same){ pg = g; b.classList.add('sel'); }
+  });
+  document.querySelectorAll('.db').forEach(b => b.onclick = () => {
+    const d = b.dataset.d;
+    if (pg) return commitD(pg, d);
+    const same = pd === d; clearPend();
+    if (!same){ pd = d; b.classList.add('sel'); }
+  });
+  function commitD(g, d){
+    dRecs.push({ id: Date.now() + Math.random(), g, d, val: DV[d], i: dseq++, at: v.duration ? v.currentTime : 0 });
+    clearPend();
+    if (navigator.vibrate) navigator.vibrate(14);
+    renderD();
+  }
+
+  // ①〜⑤の計算。小数誤差を避けるため内部は 0.1 = 1 の整数で扱う
+  function calcD(){
+    const kept = [], cut = [];
+    for (let g = 1; g <= 4; g++){
+      const list = dRecs.filter(r => r.g === g).sort((a,b) => b.val - a.val || a.i - b.i);
+      kept.push(...list.slice(0, 4));   // ① 同一グループは上位4つまで
+      cut.push(...list.slice(4));
+    }
+    const g4 = kept.filter(r => r.g === 4).sort((a,b) => b.val - a.val || a.i - b.i);
+    const dis = g4[0] || null;          // ② グループⅣ(終末技)
+    const rest = kept.filter(r => r !== dis).sort((a,b) => b.val - a.val || a.i - b.i);
+    const seven = rest.slice(0, 7);     // ③ 残りから難度順に7技
+    const over = rest.slice(7);
+    const counted = dis ? [dis, ...seven] : seven;
+
+    let diff = 0;
+    const gp = {};
+    if (dis){ diff += dis.val; gp[4] = Math.min(5, dis.val); }
+    seven.forEach(r => diff += r.val);
+    if (counted.some(r => r.g === 1)) gp[1] = 5;                        // ④
+    for (const g of [2, 3]){                                            // ⑤
+      const c = counted.filter(r => r.g === g);
+      if (c.length) gp[g] = c.some(r => r.val >= 4) ? 5 : 3;
+    }
+    const grp = [1,2,3,4].reduce((s,g) => s + (gp[g] || 0), 0);
+    return { kept, cut, dis, seven, over, counted, diff, grp, gp, total: diff + grp };
+  }
+
+  function renderD(){
+    const res = calcD();
+    $('#dNow').textContent = p1(res.total);
+    const box = $('#recs');
+    box.querySelectorAll('.rec').forEach(n => n.remove());
+    $('#dhint').style.display = dRecs.length ? 'none' : '';
+    const off = new Set([...res.cut, ...res.over].map(r => r.id));
+    dRecs.forEach(r => {
+      const el = document.createElement('div');
+      el.className = 'rec' + (off.has(r.id) ? ' drop' : '');
+      el.innerHTML = `<span class="g">${ROM[r.g]}</span><span class="d">${r.d}</span><button class="x" aria-label="削除">×</button>`;
+      el.querySelector('.x').onclick = ev => {
+        ev.stopPropagation();
+        dRecs = dRecs.filter(x => x.id !== r.id);
+        renderD();
+      };
+      el.onclick = () => { if (v.duration && r.at) v.currentTime = r.at; };
+      box.appendChild(el);
+    });
+    box.scrollLeft = box.scrollWidth;
+  }
+
+  const dName = r => ROM[r.g] + r.d;
+
+  $('#calc').onclick = () => {
+    if (!dRecs.length){ alert('技が記録されていません。'); return; }
+    const res = calcD();
+    $('#dVal').textContent = p1(res.total);
+    $('#dCalc').textContent = `難度点 ${p1(res.diff)} ＋ グループ点 ${p1(res.grp)}`;
+    $('#dSub').textContent = `記録 ${dRecs.length}技 ／ カウント ${res.counted.length}技`;
+
+    let h = '<div class="h">終末技（グループⅣ）</div>';
+    h += res.dis
+      ? `<div class="r"><span>${dName(res.dis)}</span><span class="v">難度 ${p1(res.dis.val)}／グループ ${p1(Math.min(5, res.dis.val))}</span></div>`
+      : '<div class="r off"><span>グループⅣの技なし</span><span class="v">0.0</span></div>';
+
+    h += '<div class="h">カウント技（最大7）</div>';
+    res.seven.forEach(r => h += `<div class="r"><span>${dName(r)}</span><span class="v">${p1(r.val)}</span></div>`);
+    if (!res.seven.length) h += '<div class="r off"><span>なし</span><span class="v">0.0</span></div>';
+
+    if (res.over.length || res.cut.length){
+      h += '<div class="h">カウント外</div>';
+      res.over.forEach(r => h += `<div class="r off"><span>${dName(r)}</span><span class="v">8技を超過</span></div>`);
+      res.cut.forEach(r => h += `<div class="r off"><span>${dName(r)}</span><span class="v">同一グループ5つめ以降</span></div>`);
+    }
+
+    h += '<div class="h">グループ点</div>';
+    [1,2,3,4].forEach(g => {
+      const val = res.gp[g] || 0;
+      const memo = g === 1 ? (val ? 'カウントあり' : 'カウントなし')
+        : g === 4 ? (res.dis ? `終末技 ${res.dis.d}（上限0.5）` : '終末技なし')
+        : (val === 5 ? 'D難度以上あり' : val === 3 ? 'A〜C難度のみ' : 'カウントなし');
+      h += `<div class="r${val ? '' : ' off'}"><span>${ROM[g]}</span><span>${memo}</span><span class="v">${p1(val)}</span></div>`;
+    });
+
+    h += `<div class="tot"><span>難度点</span><span class="v">${p1(res.diff)}</span></div>`;
+    h += `<div class="tot"><span>グループ点</span><span class="v">${p1(res.grp)}</span></div>`;
+    h += `<div class="tot" style="border-top:1px solid #DCE1E8;margin-top:8px;padding-top:12px"><span>Dスコア</span><span class="v">${p1(res.total)}</span></div>`;
+    $('#dBreak').innerHTML = h;
+    $('#dres').classList.add('on');
+  };
+
+  $('#dClose').onclick = () => $('#dres').classList.remove('on');
+  $('#dApply').onclick = () => {
+    $('#dscore').value = p1(calcD().total);
+    $('#dres').classList.remove('on');
+  };
+  $('#dCopy').onclick = async () => {
+    const res = calcD(), b = $('#dCopy'), label = b.textContent;
+    const lines = [
+      fileName,
+      `Dスコア: ${p1(res.total)}（難度点 ${p1(res.diff)} + グループ点 ${p1(res.grp)}）`,
+      '終末技: ' + (res.dis ? dName(res.dis) : 'なし'),
+      'カウント技: ' + (res.seven.map(dName).join(' ') || 'なし'),
+      'グループ点: ' + [1,2,3,4].map(g => `${ROM[g]}${p1(res.gp[g] || 0)}`).join(' '),
+      '記録順: ' + dRecs.map(dName).join(' ')
+    ];
+    try { await navigator.clipboard.writeText(lines.join('\n')); b.textContent = 'コピーしました'; }
+    catch { b.textContent = 'コピーできませんでした'; }
+    setTimeout(() => b.textContent = label, 1600);
+  };
+
+  renderD();
 })();
 </script>
 <script>
