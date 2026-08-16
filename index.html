@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="JudgymPocket">
 <meta name="theme-color" content="#0C2160">
-<meta name="description" content="演技動画に直接記録する体操採点アプリ">
+<meta name="description" content="演技動画に減点を記録して、スタンプ入り動画とEスコアを残す体操採点アプリ">
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" href="./icons/favicon.ico" sizes="any">
@@ -668,6 +668,19 @@
     });
   }
 
+  /* ============ 描画ヘルパー ============ */
+  // Safari 16 未満には ctx.roundRect が無いため、自前で角丸パスを引く
+  function roundRect(ctx, x, y, w, h, r){
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
   /* ============ スクショの保存 ============ */
   let viewing = null;
 
@@ -1048,7 +1061,7 @@
   }
 
   /* --- 書き出し本体 --- */
-  let expState = null, wakeLock = null;
+  let expState = null, wakeLock = null, activeStop = null;
   const logLines = [];
   const elog = (s) => { logLines.push(s); $('#expLog').textContent = logLines.join('\n'); };
 
@@ -1098,11 +1111,43 @@
 
   function failExport(err){
     elog('エラー: ' + (err && err.message ? err.message : String(err)));
+    if (activeStop){ try { activeStop('エラーのため中断'); } catch(e){} activeStop = null; }
+    try { v.pause(); } catch(e){}
     $('#expTitle').textContent = '書き出しに失敗しました';
     $('#pct').textContent = '失敗';
     $('#startWrap').style.display = '';
     $('#expStart').textContent = 'やり直す';
     if (wakeLock){ try { wakeLock.release(); } catch(e){} wakeLock = null; }
+  }
+
+  /* --- 音声トラックの取得 --- */
+  // iOS Safari には video.captureStream() が無いので、Web Audio 経由で取り出す
+  let audioCtx = null, srcNode = null, expDest = null, monitorGain = null;
+  function getAudio(){
+    try {
+      if (v.captureStream){
+        const t = v.captureStream().getAudioTracks();
+        if (t.length) return { tracks: t, how: `captureStream(${t.length})` };
+      }
+    } catch(e){}
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return { tracks: [], how: 'Web Audio 非対応' };
+      if (!audioCtx) audioCtx = new AC();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      if (!srcNode){
+        srcNode = audioCtx.createMediaElementSource(v);
+        expDest = audioCtx.createMediaStreamDestination();
+        monitorGain = audioCtx.createGain();
+        srcNode.connect(expDest);                    // 録画には原音のまま
+        srcNode.connect(monitorGain);
+        monitorGain.connect(audioCtx.destination);   // 再生音は絞れるように
+      }
+      const t = expDest.stream.getAudioTracks();
+      return { tracks: t, how: t.length ? `Web Audio(${t.length})` : 'Web Audio だが音声なし' };
+    } catch(e){
+      return { tracks: [], how: '取得不可: ' + e.message };
+    }
   }
 
   function runCapture(mime){
@@ -1122,14 +1167,9 @@
     ctx.drawImage(v, 0, 0, W, H);
 
     const stream = canvas.captureStream(30);
-    let audio = 'なし';
-    try {
-      const src = v.captureStream ? v.captureStream() : (v.mozCaptureStream ? v.mozCaptureStream() : null);
-      const at = src ? src.getAudioTracks() : [];
-      at.forEach(t => stream.addTrack(t));
-      audio = at.length ? `${at.length}トラック` : 'なし(無音になります)';
-    } catch(e){ audio = '取得不可(無音になります)'; }
-    elog('音声: ' + audio);
+    const au = getAudio();
+    au.tracks.forEach(t => { try { stream.addTrack(t); } catch(e){} });
+    elog('音声: ' + au.how);
 
     const chunks = [];
     const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000 });
@@ -1144,11 +1184,13 @@
     };
     const onEnd = () => stop('動画の終端');
     v.addEventListener('ended', onEnd);
+    activeStop = stop;
 
     rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
     rec.onerror = e => failExport(e.error || new Error('MediaRecorder エラー'));
     rec.onstop = () => {
       v.volume = 1;
+      if (monitorGain) monitorGain.gain.value = 1;
       if (wakeLock){ try { wakeLock.release(); } catch(e){} wakeLock = null; }
       const blob = new Blob(chunks, { type: mime });
       elog(`データ: ${chunks.length}個 / ${(blob.size/1048576).toFixed(1)} MB`);
@@ -1168,7 +1210,7 @@
       navigator.wakeLock.request('screen').then(l => wakeLock = l).catch(() => {});
     }
 
-    v.volume = 0.15;
+    if (monitorGain) monitorGain.gain.value = 0.15; else v.volume = 0.15;
     const playing = v.play();               // ユーザー操作の直後に同期的に呼ぶ
     rec.start(250);
     elog('録画開始');
@@ -1189,6 +1231,7 @@
 
     (function draw(){
       if (stopped) return;
+      try {
       const t = v.currentTime;
       ctx.drawImage(v, 0, 0, W, H);
       let slot = 0;
@@ -1207,6 +1250,7 @@
       $('#pct').textContent = p + '%';
       if (v.ended || v.paused){ stop(v.ended ? '終端' : '一時停止'); return; }
       requestAnimationFrame(draw);
+      } catch(err){ failExport(err); }
     })();
   }
 
