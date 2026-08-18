@@ -610,7 +610,8 @@
     </div>
     <div class="bd" id="dBreak"></div>
     <div class="act">
-      <button class="btn primary" id="dApply">Eスコアの控えに反映して閉じる</button>
+      <button class="btn primary" id="dExport">スタンプ入り動画を書き出す</button>
+      <button class="btn ghost" id="dApply">Eスコアの控えに反映して閉じる</button>
       <button class="btn ghost" id="dCopy">内訳をテキストでコピー</button>
       <button class="btn ghost" id="dClose">閉じる</button>
     </div>
@@ -659,6 +660,10 @@
       <input type="number" id="dur" value="1.5" min="0.3" max="5" step="0.1">
     </div>
     <div class="field">
+      <label>まとめ表示<small>書き出し動画の最後にスコアのまとめを出す秒数（0でなし）</small></label>
+      <input type="number" id="outro" value="5" min="0" max="15" step="1">
+    </div>
+    <div class="field">
       <label>Dスコア<small>Eスコアとは別に控えとして記録</small></label>
       <input type="number" id="dscore" value="0" min="0" max="10" step="0.1">
     </div>
@@ -676,7 +681,8 @@
   const cfg = () => ({
     offset: Math.max(0, parseFloat($('#offset').value) || 0),
     dur: Math.max(.3, parseFloat($('#dur').value) || 1.5),
-    d: parseFloat($('#dscore').value) || 0
+    d: parseFloat($('#dscore').value) || 0,
+    outro: Math.max(0, parseFloat($('#outro').value) || 0)
   });
   const fmt = t => { t = Math.max(0, t|0); return String((t/60)|0).padStart(2,'0')+':'+String(t%60).padStart(2,'0'); };
   const stampTime = t => `${fmt(t)}.${String(Math.floor(Math.abs(t)%1*10))}`;
@@ -1264,6 +1270,138 @@
     ctx.restore();
   }
 
+  /* --- 動画末尾のまとめ画面 --- */
+  // 高さ1000の仮想座標で組み、実解像度に合わせて拡大する（縦横どちらの動画でも崩れない）
+  function drawSummary(ctx, W, H, s, age){
+    const a = Math.min(1, age / 0.45);
+    const S = H / 1000, VW = W / S;
+    const F = '-apple-system,"Hiragino Sans",system-ui,sans-serif';
+
+    ctx.save();
+    ctx.fillStyle = '#0A1B44';
+    ctx.fillRect(0, 0, W, H);
+    const seg = W / 4, bh = H * 0.012;
+    ['#12A45A','#EE8B12','#D8202A','#7B2FC4'].forEach((c,i) => { ctx.fillStyle = c; ctx.fillRect(seg*i, 0, seg+1, bh); });
+
+    ctx.scale(S, S);
+    ctx.globalAlpha = a;
+    ctx.translate(0, (1 - a) * 26);
+
+    const pad = Math.min(70, VW * 0.06);
+    const wide = VW >= 1400;
+
+    // 見出し
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,255,255,.55)';
+    ctx.font = `800 34px ${F}`;
+    ctx.fillText(s.file, pad, 92);
+    if (s.hasD){
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#fff';
+      ctx.font = `800 42px ${F}`;
+      ctx.fillText(s.app, VW - pad, 92);
+    }
+
+    const panel = (x, y, w, h, label, value, lines, accent) => {
+      ctx.fillStyle = 'rgba(255,255,255,.08)';
+      roundRect(ctx, x, y, w, h, 26); ctx.fill();
+      ctx.fillStyle = accent;
+      roundRect(ctx, x, y, 9, h, 5); ctx.fill();
+      const ix = x + 46;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(255,255,255,.6)';
+      ctx.font = `800 30px ${F}`;
+      ctx.fillText(label, ix, y + 66);
+      ctx.fillStyle = '#fff';
+      ctx.font = `800 104px ${F}`;
+      ctx.fillText(value, ix, y + 178);
+      ctx.font = `700 34px ${F}`;
+      lines.forEach((ln, i) => {
+        const ly = y + 238 + i * 50;
+        ctx.textAlign = 'left';
+        ctx.fillStyle = 'rgba(255,255,255,.6)';
+        ctx.fillText(ln[0], ix, ly);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(ln[1], x + w - 46, ly);
+      });
+    };
+
+    const eLines = [['減点合計', '−' + s.ded.toFixed(1)], ['減点の数', s.n + ' 件']];
+    const hD = 238 + s.dLines.length * 50 + 24;
+    const hE = 238 + eLines.length * 50 + 24;
+    const gap = 26, totalH = 180, top = 130, bw = VW - pad * 2;
+
+    // 縦動画では縦の余裕が足りないので、収まる倍率に落として中央に置く
+    // Dが無いときは1枚だけなので、幅を絞って大きく見せる
+    const pw = s.hasD ? bw : bw * 0.62;
+    const needed = !s.hasD ? hE
+      : wide ? Math.max(hD, hE) + gap + totalH
+      : hD + gap + hE + gap + totalH;
+    const avail = 1000 - top - 40;
+    const k = Math.min(VW / pw, avail / needed);
+    ctx.save();
+    ctx.translate(VW * (1 - k) / 2, top + Math.max(0, (avail - needed * k) / 2));
+    ctx.scale(k, k);
+
+    if (!s.hasD){
+      panel((VW - pw) / 2, 0, pw, hE, 'E SCORE', s.e.toFixed(2), eLines, '#D8202A');
+      ctx.restore(); ctx.restore();
+      return;
+    }
+
+    let totalY;
+    if (wide){
+      const g2 = 40, w = (bw - g2) / 2, h = Math.max(hD, hE);
+      panel(pad, 0, w, h, 'D SCORE', s.d.toFixed(1), s.dLines, '#12A45A');
+      panel(pad + w + g2, 0, w, h, 'E SCORE', s.e.toFixed(2), eLines, '#D8202A');
+      totalY = h + gap;
+    } else {
+      panel(pad, 0, bw, hD, 'D SCORE', s.d.toFixed(1), s.dLines, '#12A45A');
+      panel(pad, hD + gap, bw, hE, 'E SCORE', s.e.toFixed(2), eLines, '#D8202A');
+      totalY = hD + gap + hE + gap;
+    }
+
+    // 合計
+    ctx.fillStyle = '#12A45A';
+    roundRect(ctx, pad, totalY, bw, totalH, 26); ctx.fill();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    ctx.font = `800 34px ${F}`;
+    ctx.fillText('合計', pad + 46, totalY + totalH * 0.6);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#fff';
+    const txt = (s.d + s.e).toFixed(2);
+    let tf = Math.min(124, totalH * 0.68);
+    ctx.font = `800 ${tf}px ${F}`;
+    const tw = ctx.measureText(txt).width, maxw = bw * 0.62;
+    if (tw > maxw) tf = Math.floor(tf * maxw / tw);
+    ctx.font = `800 ${tf}px ${F}`;
+    ctx.fillText(txt, VW - pad - 46, totalY + totalH * 0.5 + tf * 0.36);
+    ctx.restore();
+    ctx.restore();
+  }
+
+  function buildSummary(){
+    const has = app.vault ? !!vaultPick : dRecs.length > 0;
+    const res = has ? calcD() : null;
+    const lines = [];
+    if (res){
+      if (res.vault) lines.push(['価値点', p1(res.base)]);
+      else {
+        lines.push(['難度点', p1(res.diff)], ['グループ点', p1(res.grp)]);
+        if (app.bonus) lines.push([app.bonusName, '+' + p1(res.bonus)]);
+      }
+      if (app.landing) lines.push(['着地加点', '+' + p1(res.land)]);
+    }
+    return {
+      file: fileName, app: app.name, hasD: has,
+      d: res ? res.total / 10 : 0, dLines: lines,
+      e: eScore(), ded: total(), n: marks.length
+    };
+  }
+
   /* --- 書き出し本体 --- */
   let expState = null, wakeLock = null, activeStop = null, exporting = false;
   function setProgress(p, text){
@@ -1421,7 +1559,10 @@
       v.removeEventListener('ended', onEnd);
       if (rec.state !== 'inactive') rec.stop();
     };
-    const onEnd = () => stop('動画の終端');
+    const outroSec = c.outro;
+    let outroAt = null;
+    const summary = buildSummary();
+    const onEnd = () => { if (!outroSec) stop('動画の終端'); };
     v.addEventListener('ended', onEnd);
     activeStop = stop;
 
@@ -1471,13 +1612,25 @@
       if (stopped) return;
       if (v.currentTime === lastT) stall++; else stall = 0;
       lastT = v.currentTime;
-      if (v.ended) stop('終端(監視)');
-      else if (stall > 12) stop('進行が止まったため中断');
+      if (outroAt !== null){
+        if ((performance.now() - outroAt) / 1000 > outroSec + 3) stop('まとめ表示の監視');
+      } else if (v.ended){
+        if (!outroSec) stop('終端(監視)');
+      } else if (stall > 12) stop('進行が止まったため中断');
     }, 500);
 
     (function draw(){
       if (stopped) return;
       try {
+      if (outroAt !== null){
+        const age = (performance.now() - outroAt) / 1000;
+        drawSummary(ctx, W, H, summary, age);
+        $('#expBarText').textContent = 'まとめ表示中　タップで詳細';
+        $('#pct').textContent = 'まとめ表示中';
+        if (age >= outroSec){ stop('まとめ表示おわり'); return; }
+        requestAnimationFrame(draw);
+        return;
+      }
       const t = v.currentTime;
       ctx.drawImage(v, 0, 0, W, H);
       let slot = 0;
@@ -1492,14 +1645,22 @@
       }
       drawHud(ctx, W, H, finalE, finalD);
       setProgress(Math.round(t / v.duration * 100), Math.round(t / v.duration * 100) + '%');
-      if (v.ended || v.paused){ stop(v.ended ? '終端' : '一時停止'); return; }
+      if (v.ended || v.paused){
+        if (v.ended && outroSec){ outroAt = performance.now(); requestAnimationFrame(draw); return; }
+        stop(v.ended ? '終端' : '一時停止');
+        return;
+      }
       requestAnimationFrame(draw);
       } catch(err){ failExport(err); }
     })();
   }
 
   /* --- 保存 --- */
-  const outName = () => `${fileName}_E${eScore().toFixed(2)}.${outExt}`;
+  const outName = () => {
+    const has = app.vault ? !!vaultPick : dRecs.length > 0;
+    const d = has ? `_D${p1(calcD().total)}` : '';
+    return `${fileName}_E${eScore().toFixed(2)}${d}.${outExt}`;
+  };
 
   $('#dl').onclick = () => {
     if (!blobOut) return;
@@ -1921,6 +2082,7 @@
     renderD();
   }
 
+  $('#dExport').onclick = () => { $('#dres').classList.remove('on'); doExport(); };
   $('#dClose').onclick = () => $('#dres').classList.remove('on');
   $('#dApply').onclick = () => {
     $('#dscore').value = p1(calcD().total);
