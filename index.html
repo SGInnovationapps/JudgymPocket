@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="JudgymPocket">
-<meta name="theme-color" content="#0C2160">
+<meta name="theme-color" content="#0A1B44">
 <meta name="description" content="演技動画に減点を記録して、スタンプ入り動画とEスコアを残す体操採点アプリ">
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
@@ -14,16 +14,31 @@
 <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
 <title>JudgymPocket</title>
 <style>
+  /* ===========================================================
+     JudgymPocket — 体育館で片手・一瞬で押す「計器」としての見た目。
+     ボタンは物理キーに見せる（上面のハイライト＋下端の濃い縁）。
+     配色はスコアボードの紺と、減点4色の信号色を基準にする。
+     =========================================================== */
   :root{
-    --navy:#0C2160;
-    --save:#0A78C8;
-    --g:#0FA958;
-    --o:#E8842C;
-    --r:#C60D0D;
-    --p:#7B27A3;
-    --ink:#12161C;
-    --line:#DCE1E8;
-    --mute:#7C8797;
+    --navy:#0A1B44;
+    --navy-2:#14306E;
+    --ink:#111823;
+    --muted:#77839A;
+    --line:#DFE5EE;
+    --rail:#F2F5FA;
+    --save:#0A6FD0;
+    --save-d:#0A5AAB;
+
+    --d01:#12A45A;  --d01-d:#0B7B41;
+    --d03:#EE8B12;  --d03-d:#BF6B06;
+    --d05:#D8202A;  --d05-d:#A5141C;
+    --d10:#7B2FC4;  --d10-d:#5C1F97;
+    --grp:#12A45A;  --grp-d:#0B7B41;
+    --dif:#3C63C8;  --dif-d:#2A4795;
+    --bonus:#0E9AA7; --bonus-d:#0A6F79;
+    --score:#D81B36;
+
+    --r-key:13px;
     --safe-top:env(safe-area-inset-top,0px);
     --safe-bottom:env(safe-area-inset-bottom,0px);
   }
@@ -32,215 +47,352 @@
   body{
     background:#fff;color:var(--ink);
     font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+    font-variant-numeric:tabular-nums;
     overscroll-behavior:none;
   }
   #app{display:flex;flex-direction:column;height:100dvh}
+  :focus-visible{outline:3px solid #FFC400;outline-offset:2px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
-  /* header */
+  /* ---------- ヘッダー ---------- */
   header{
-    background:var(--navy);flex:0 0 auto;
-    padding:calc(var(--safe-top) + 12px) 16px 12px;
-    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    position:relative;flex:0 0 auto;
+    background:linear-gradient(180deg,var(--navy-2) 0%,var(--navy) 100%);
+    padding:calc(var(--safe-top) + 13px) 14px 13px;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+  }
+  /* 減点4色の帯＝この道具が何のためのものかを示す署名 */
+  header::after{
+    content:"";position:absolute;left:0;right:0;bottom:0;height:3px;
+    background:linear-gradient(90deg,
+      var(--d01) 0 25%, var(--d03) 25% 50%, var(--d05) 50% 75%, var(--d10) 75% 100%);
   }
   header .brand{
-    margin:0;color:#fff;font-size:22px;font-weight:800;letter-spacing:.01em;
+    margin:0;color:#fff;font-size:20px;font-weight:800;letter-spacing:-.015em;
     white-space:nowrap;user-select:none;
   }
-  header .brand em{font-style:normal;color:#7FB4FF}
-  .seg{display:flex;background:rgba(255,255,255,.14);border-radius:8px;padding:3px;gap:3px;margin-left:auto;margin-right:12px}
+  header .brand em{font-style:normal;color:#8FB7FF}
+  .seg{
+    display:flex;background:rgba(255,255,255,.12);border-radius:10px;padding:3px;gap:2px;
+    margin-left:auto;margin-right:10px;box-shadow:inset 0 1px 2px rgba(0,0,0,.25);
+  }
   .seg button{
-    background:none;border:0;color:#C9D6F2;font-size:13px;font-weight:700;
-    padding:7px 12px;border-radius:6px;cursor:pointer;white-space:nowrap;
+    background:none;border:0;color:#B8C8E8;font-size:13px;font-weight:700;
+    padding:7px 13px;border-radius:8px;cursor:pointer;white-space:nowrap;
+    transition:background .15s ease,color .15s ease;
   }
-  .seg button.on{background:#fff;color:var(--navy)}
-  .mode{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
-  .mode.hidden{display:none!important}
-
-  /* Dスコア画面 */
-  .dpad{flex:1 1 auto;display:grid;grid-template-columns:30% 1fr;gap:10px;padding:10px;min-height:0}
-  .grp{
-    display:grid;gap:8px;
-    grid-template-columns:1fr 1fr;
-    grid-template-rows:1fr 1fr 1fr;
-    grid-template-areas:"g1 ." "g2 ." "g3 g4";
-  }
-  .dif{
-    display:grid;gap:8px;
-    grid-template-columns:repeat(4,1fr);
-    grid-template-rows:1fr 1fr 1fr;
-    grid-template-areas:". a b c" "i . . d" "h g f e";
-  }
-  .gb,.db{
-    border:0;color:#fff;font-weight:800;cursor:pointer;border-radius:3px;
-    display:flex;align-items:center;justify-content:center;
-    font-size:clamp(20px,6.4vw,34px);line-height:1;
-    transition:transform .06s ease,filter .06s ease,box-shadow .12s ease;
-  }
-  .gb{background:#12A44E}
-  .db{background:#4C74C7}
-  .gb:active,.db:active{transform:scale(.95);filter:brightness(.9)}
-  .gb.sel,.db.sel{box-shadow:0 0 0 4px #FFC400;filter:brightness(1.12)}
-  .gb:disabled,.db:disabled{opacity:.35}
-
-  .recs{
-    flex:0 0 auto;height:62px;border:1px solid #9AA6BC;border-radius:2px;margin:0 10px;
-    display:flex;align-items:center;gap:6px;padding:6px;overflow-x:auto;background:#fff;
-  }
-  .recs::-webkit-scrollbar{height:0}
-  .recs .hint{margin:auto;color:var(--mute);font-size:12px;text-align:center;padding:0 10px}
-  .rec{
-    position:relative;flex:0 0 auto;display:flex;align-items:center;gap:2px;
-    background:#EEF2F8;border:1px solid #C6D0DE;border-radius:6px;
-    padding:7px 9px;font-size:17px;font-weight:800;cursor:pointer;white-space:nowrap;
-  }
-  .rec .g{color:#0E8C43}
-  .rec .d{color:#2E56A6}
-  .rec.drop{opacity:.42;text-decoration:line-through}
-  .rec .x{
-    position:absolute;right:-5px;top:-6px;width:18px;height:18px;border:0;border-radius:50%;
-    background:#5A6675;color:#fff;font-size:12px;line-height:18px;padding:0;cursor:pointer;
-  }
-  #calc{
-    background:var(--save);color:#fff;border:0;border-radius:2px;
-    padding:14px 34px;font-size:26px;font-weight:800;cursor:pointer;letter-spacing:.08em;
-  }
-  .bd{border-top:1px solid var(--line);margin-top:4px}
-  .bd .h{font-size:12px;letter-spacing:.1em;color:var(--mute);padding:12px 0 4px;font-weight:800}
-  .bd .r{display:flex;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid var(--line);font-size:14.5px}
-  .bd .r .v{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:700}
-  .bd .r.off{color:#9AA4B2}
-  .bd .tot{display:flex;padding:12px 2px 0;font-size:16px;font-weight:800}
-  .bd .tot .v{margin-left:auto;font-variant-numeric:tabular-nums}
+  .seg button.on{background:#fff;color:var(--navy);box-shadow:0 1px 2px rgba(0,0,0,.28)}
   #menuBtn{background:none;border:0;padding:6px;cursor:pointer;display:flex}
-  #menuBtn span{display:block;width:34px;height:5px;background:#fff;border-radius:1px}
-  #menuBtn div{display:flex;flex-direction:column;gap:7px}
+  #menuBtn span{display:block;width:30px;height:4px;background:#fff;border-radius:2px}
+  #menuBtn div{display:flex;flex-direction:column;gap:6px}
+  #menuBtn:active{opacity:.6}
 
-  /* video */
+  /* ---------- 映像 ---------- */
   .stage{background:#fff;flex:0 0 auto;position:relative}
   .stage video{display:block;width:100%;max-height:38dvh;background:#000;object-fit:contain}
   .empty{
-    height:30dvh;min-height:190px;display:flex;flex-direction:column;gap:10px;
+    height:30dvh;min-height:190px;display:flex;flex-direction:column;gap:9px;
     align-items:center;justify-content:center;text-align:center;padding:18px;
-    background:#F5F7FA;border:2px dashed #C3CBD6;border-radius:12px;margin:12px;
-    transition:background .15s ease,border-color .15s ease;
+    background:var(--rail);border:2px dashed #C4CDDC;border-radius:14px;margin:12px;
+    transition:background .15s ease,border-color .15s ease;cursor:pointer;
   }
-  .empty.over{background:#EAF2FE;border-color:var(--save)}
-  .empty .ttl{margin:0;font-size:16px;font-weight:700;color:#33404F}
-  .empty .sub2{margin:0;font-size:12.5px;color:var(--mute)}
-  .empty svg{color:#8B97A6}
+  .empty.over{background:#E8F1FD;border-color:var(--save)}
+  .empty .ttl{margin:0;font-size:16px;font-weight:700;color:#2C3849}
+  .empty .sub2{margin:0;font-size:12.5px;color:var(--muted)}
+  .empty svg{color:#94A0B3}
   .pick{
-    background:var(--save);color:#fff;border:0;border-radius:8px;
-    padding:12px 26px;font-size:16px;font-weight:700;cursor:pointer;margin-top:4px;
+    background:var(--save);color:#fff;border:0;border-radius:10px;
+    padding:12px 26px;font-size:15px;font-weight:700;cursor:pointer;margin-top:5px;
+    box-shadow:0 2px 0 var(--save-d);
   }
-  .pick:active{filter:brightness(.92)}
+  .pick:active{transform:translateY(2px);box-shadow:0 0 0 var(--save-d)}
 
-  .controls{display:flex;align-items:center;gap:11px;padding:7px 12px;background:#0E1319;color:#fff}
+  .controls{
+    display:flex;align-items:center;gap:12px;padding:9px 13px;
+    background:#101623;color:#fff;
+  }
   .controls button{background:none;border:0;color:#fff;padding:0;display:flex;cursor:pointer}
+  .controls button:active{opacity:.6}
   .controls svg{width:21px;height:21px}
-  .time{font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .track{position:relative;flex:1;height:20px;display:flex;align-items:center;cursor:pointer;touch-action:none}
-  .track .bar{position:absolute;left:0;right:0;height:4px;border-radius:2px;background:#39404A}
-  .track .fill{position:absolute;left:0;height:4px;border-radius:2px;background:#3B86FF;width:0}
-  .track .mk{position:absolute;width:3px;height:13px;border-radius:2px;transform:translateX(-1.5px)}
+  .time{font-size:12.5px;letter-spacing:.02em;color:#C3CCDC;white-space:nowrap}
+  .track{position:relative;flex:1;height:22px;display:flex;align-items:center;cursor:pointer;touch-action:none}
+  .track .bar{position:absolute;left:0;right:0;height:5px;border-radius:3px;background:#2B3444}
+  .track .fill{position:absolute;left:0;height:5px;border-radius:3px;background:#4C8DFF;width:0}
+  .track .mk{position:absolute;width:3px;height:15px;border-radius:2px;transform:translateX(-1.5px);box-shadow:0 0 0 1px rgba(0,0,0,.35)}
 
-  /* deduction buttons */
-  .pad{flex:1 1 auto;display:flex;flex-direction:column;gap:8px;padding:10px;min-height:0}
-  .rowA{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;flex:1 1 0;min-height:64px}
-  .rowB{display:flex;justify-content:center;flex:1 1 0;min-height:64px}
-  .ded{
-    border:0;color:#fff;font-weight:800;font-variant-numeric:tabular-nums;
-    font-size:clamp(28px,8.5vw,52px);cursor:pointer;border-radius:2px;
-    display:flex;align-items:center;justify-content:center;
-    transition:transform .06s ease,filter .06s ease;
+  /* ---------- キーキャップ共通 ---------- */
+  .ded,.gb,.db,.pb{
+    position:relative;border:0;color:#fff;font-weight:800;cursor:pointer;
+    border-radius:var(--r-key);display:flex;align-items:center;justify-content:center;
+    line-height:1;letter-spacing:-.02em;overflow:hidden;
+    text-shadow:0 1px 1px rgba(0,0,0,.22);
+    transition:transform .07s ease,box-shadow .07s ease,filter .07s ease;
   }
-  .rowB .ded{width:44%}
-  .ded:active{transform:scale(.96);filter:brightness(.9)}
-  .ded:disabled{opacity:.35}
-  .ded.flash{animation:pop .26s ease}
-  @keyframes pop{0%{transform:scale(1)}40%{transform:scale(.93)}100%{transform:scale(1)}}
-  .b03{background:var(--o)} .b05{background:var(--r)} .b01{background:var(--g)} .b10{background:var(--p)}
+  /* 上面のわずかな光 */
+  .ded::before,.gb::before,.db::before,.pb::before{
+    content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+    background:linear-gradient(180deg,rgba(255,255,255,.26) 0,rgba(255,255,255,.07) 2px,rgba(255,255,255,0) 14px);
+  }
+  .ded:active,.gb:active,.db:active,.pb:active{transform:translateY(3px)}
+  .ded:disabled,.gb:disabled,.db:disabled,.pb:disabled{
+    opacity:1;background:#E3E8F0;color:#A9B4C4;text-shadow:none;box-shadow:0 3px 0 #CFD7E3;
+  }
+  .ded:disabled::before,.gb:disabled::before,.db:disabled::before,.pb:disabled::before{background:none}
 
-  /* screenshot strip */
+  /* ---------- E採点：減点ボタン ---------- */
+  .pad{flex:1 1 auto;display:flex;flex-direction:column;gap:9px;padding:11px;min-height:0}
+  .rowA{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;flex:1 1 0;min-height:64px}
+  .rowB{display:flex;justify-content:center;flex:1 1 0;min-height:64px}
+  .ded{font-size:clamp(30px,9vw,54px)}
+  .rowB .ded{width:44%}
+  .b01{background:var(--d01);box-shadow:0 4px 0 var(--d01-d)}
+  .b03{background:var(--d03);box-shadow:0 4px 0 var(--d03-d)}
+  .b05{background:var(--d05);box-shadow:0 4px 0 var(--d05-d)}
+  .b10{background:var(--d10);box-shadow:0 4px 0 var(--d10-d)}
+  .b01:active{box-shadow:0 1px 0 var(--d01-d)}
+  .b03:active{box-shadow:0 1px 0 var(--d03-d)}
+  .b05:active{box-shadow:0 1px 0 var(--d05-d)}
+  .b10:active{box-shadow:0 1px 0 var(--d10-d)}
+  .ded.flash::after{
+    content:"";position:absolute;inset:0;border-radius:inherit;background:#fff;
+    animation:blink .32s ease-out forwards;pointer-events:none;
+  }
+  @keyframes blink{0%{opacity:.55}100%{opacity:0}}
+
+  /* ---------- スクショ帯 ---------- */
   .strip{
-    flex:0 0 auto;height:84px;border:1px solid #9AA6BC;border-radius:2px;
-    display:flex;gap:0;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;background:#fff;
+    flex:0 0 auto;height:88px;margin:0 11px;padding:6px;border-radius:12px;
+    background:var(--rail);border:1px solid var(--line);
+    display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
   }
   .strip::-webkit-scrollbar{height:0}
-  .strip .hint{margin:auto;color:var(--mute);font-size:12.5px;padding:0 14px;text-align:center;line-height:1.5}
-  .shot{position:relative;flex:0 0 auto;height:100%;border-right:1px solid #9AA6BC;cursor:pointer;background:#233;}
+  .strip .hint{margin:auto;color:var(--muted);font-size:12px;padding:0 14px;text-align:center;line-height:1.55}
+  .shot{
+    position:relative;flex:0 0 auto;height:100%;border-radius:8px;overflow:hidden;
+    cursor:pointer;background:#1A2230;box-shadow:0 1px 3px rgba(16,26,48,.22);
+  }
   .shot canvas{display:block;height:100%;width:auto}
   .shot .tag{
-    position:absolute;left:0;bottom:0;color:#fff;font-size:11px;font-weight:800;
-    padding:1px 5px;border-radius:0 4px 0 0;
+    position:absolute;left:4px;bottom:4px;color:#fff;font-size:11px;font-weight:800;
+    padding:2px 6px;border-radius:5px;box-shadow:0 1px 2px rgba(0,0,0,.3);
   }
-  .shot .t{position:absolute;right:0;bottom:0;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:1px 4px;font-variant-numeric:tabular-nums}
+  .shot .t{
+    position:absolute;right:4px;bottom:4px;background:rgba(6,10,20,.7);color:#E6ECF6;
+    font-size:10px;padding:2px 5px;border-radius:5px;
+  }
   .shot .x{
-    position:absolute;right:2px;top:2px;width:20px;height:20px;border:0;border-radius:50%;
-    background:rgba(0,0,0,.55);color:#fff;font-size:14px;line-height:20px;padding:0;cursor:pointer;
+    position:absolute;right:3px;top:3px;width:21px;height:21px;border:0;border-radius:50%;
+    background:rgba(6,10,20,.62);color:#fff;font-size:14px;line-height:21px;padding:0;cursor:pointer;
   }
-  .shot .load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#cfd6e0;font-size:11px}
+  .shot .load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#96A3B8;font-size:11px}
 
-  /* bottom bar */
+  /* ---------- D算出：種目タブ ---------- */
+  .apps{
+    flex:0 0 auto;display:grid;grid-template-columns:repeat(6,1fr);gap:4px;
+    padding:9px 11px 0;
+  }
+  .apps button{
+    background:#EEF1F6;border:0;border-radius:8px;padding:9px 2px;cursor:pointer;
+    font-size:12px;font-weight:800;color:#5A6675;letter-spacing:-.03em;white-space:nowrap;
+    transition:background .14s ease,color .14s ease;
+  }
+  .apps button.on{background:var(--navy);color:#fff;box-shadow:0 2px 0 #050E2A}
+
+  /* ---------- D算出：グループ／難度 ---------- */
+  /* 左手＝グループ、右手＝難度。両ブロックを外側に寄せ、中央に親指の届かない
+     余白をつくる。下端そろえにして親指の付け根から近い位置に集める。 */
+  .dpad{
+    flex:1 1 auto;display:grid;grid-template-columns:30% 1fr;
+    column-gap:20px;row-gap:0;padding:6px 8px 10px;min-height:0;align-items:end;
+  }
+  .dpad.wide{grid-template-columns:33% 1fr;column-gap:16px}
+  .grp,.dif{max-height:268px;height:100%}
+  .grp{
+    display:grid;gap:8px;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr 1fr;
+    grid-template-areas:"g1 p1" "g2 p2" "g3 g4";
+  }
+  .dif{
+    display:grid;gap:8px;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr 1fr 1fr;
+    grid-template-areas:". a b c" "i . . d" "h g f e";
+  }
+  .gb,.db,.pb{font-size:clamp(19px,6vw,32px)}
+  .gb{background:var(--grp);box-shadow:0 4px 0 var(--grp-d)}
+  .db{background:var(--dif);box-shadow:0 4px 0 var(--dif-d)}
+  .pb{
+    background:var(--bonus);box-shadow:0 4px 0 var(--bonus-d);
+    font-size:clamp(14px,4.4vw,22px);letter-spacing:-.03em;
+  }
+  .gb:active{box-shadow:0 1px 0 var(--grp-d)}
+  .db:active{box-shadow:0 1px 0 var(--dif-d)}
+  .pb:active{box-shadow:0 1px 0 var(--bonus-d)}
+  /* 選択待ちは琥珀のリングで示す */
+  .gb.sel,.db.sel{
+    transform:translateY(2px);filter:brightness(1.08);
+    box-shadow:0 2px 0 var(--grp-d),0 0 0 3px #FFC400,0 0 14px rgba(255,196,0,.55);
+  }
+  .db.sel{box-shadow:0 2px 0 var(--dif-d),0 0 0 3px #FFC400,0 0 14px rgba(255,196,0,.55)}
+
+  /* ---------- 跳馬：価値点一覧 ---------- */
+  .vault{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;padding:9px 11px 0}
+  .vault.hidden{display:none!important}
+  .vhead{flex:0 0 auto;display:flex;flex-direction:column;gap:7px;padding-bottom:8px}
+  #vSearch{
+    width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:10px;
+    font-size:15px;background:var(--rail);-webkit-appearance:none;
+  }
+  .vtabs{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+  .vtabs button{
+    background:#EEF1F6;border:0;border-radius:7px;padding:8px 0;cursor:pointer;
+    font-size:13px;font-weight:800;color:#5A6675;
+  }
+  .vtabs button.on{background:var(--dif);color:#fff}
+  .vlist{
+    flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    border:1px solid var(--line);border-radius:12px;background:var(--rail);
+  }
+  .vrow{
+    display:flex;align-items:center;gap:10px;padding:10px 11px;cursor:pointer;
+    border-bottom:1px solid var(--line);background:#fff;
+  }
+  .vrow:last-child{border-bottom:0}
+  .vrow .no{flex:0 0 auto;width:34px;font-size:11px;font-weight:800;color:var(--muted)}
+  .vrow .val{
+    flex:0 0 auto;width:46px;text-align:center;background:var(--dif);color:#fff;
+    border-radius:7px;padding:5px 0;font-size:15px;font-weight:800;
+  }
+  .vrow .nm{flex:1 1 auto;font-size:13px;line-height:1.45;color:#2C3849}
+  .vrow.on{background:#E8F1FD;box-shadow:inset 3px 0 0 var(--dif)}
+  .vrow.on .nm{font-weight:700}
+  .vempty{padding:26px 14px;text-align:center;color:var(--muted);font-size:13px;background:#fff}
+
+  /* ---------- 書き出し進捗バー ---------- */
+  .expbar{
+    position:relative;flex:0 0 auto;display:block;width:100%;border:0;padding:0;
+    height:30px;background:#152344;color:#fff;cursor:pointer;overflow:hidden;text-align:left;
+  }
+  .expbar.hidden{display:none!important}
+  .expbar i{position:absolute;left:0;top:0;bottom:0;width:0;background:#1E56B8;transition:width .25s linear}
+  .expbar span{
+    position:relative;display:block;line-height:30px;padding:0 13px;
+    font-size:12px;font-weight:800;letter-spacing:.02em;
+  }
+  .expbar.done{background:var(--d01)}
+  .expbar.done i{width:100%;background:var(--d01)}
+
+  .recs{
+    flex:0 0 auto;height:64px;margin:0 11px;padding:7px;border-radius:12px;
+    background:var(--rail);border:1px solid var(--line);
+    display:flex;align-items:center;gap:7px;overflow-x:auto;
+  }
+  .recs::-webkit-scrollbar{height:0}
+  .recs .hint{margin:auto;color:var(--muted);font-size:12px;text-align:center;padding:0 10px}
+  .rec{
+    flex:0 0 auto;display:flex;align-items:center;gap:7px;
+    background:#fff;border:1px solid var(--line);border-radius:9px;
+    padding:7px 7px 7px 11px;font-size:17px;font-weight:800;cursor:pointer;white-space:nowrap;
+    box-shadow:0 1px 2px rgba(16,26,48,.10);
+  }
+  .rec .g{color:var(--grp-d);font-size:15px}
+  .rec .d{color:var(--dif-d)}
+  .rec.bonus{background:#E4F6F7;border-color:#A8DDE2}
+  .rec.bonus .b{color:var(--bonus-d);font-size:14px;font-weight:800}
+  .rec.drop{opacity:.45;background:#EDF0F5;box-shadow:none}
+  .rec.drop .g,.rec.drop .d{text-decoration:line-through}
+  .rec .x{
+    width:20px;height:20px;flex:0 0 auto;border:0;border-radius:6px;
+    background:#E7ECF4;color:#6B7688;font-size:13px;line-height:20px;padding:0;cursor:pointer;
+  }
+  .rec .x:active{background:#D6DDE8}
+  .rec.drop .x{background:#E0E5ED}
+
+  /* ---------- 下部バー ---------- */
   .bottom{
-    flex:0 0 auto;display:flex;align-items:center;gap:14px;
-    padding:8px 10px calc(8px + var(--safe-bottom));
+    flex:0 0 auto;display:flex;align-items:center;gap:12px;
+    padding:10px 11px calc(10px + var(--safe-bottom));
   }
-  #save{
-    background:var(--save);color:#fff;border:0;border-radius:2px;
-    padding:14px 34px;font-size:26px;font-weight:800;cursor:pointer;letter-spacing:.08em;
+  #save,#calc{
+    background:var(--save);color:#fff;border:0;border-radius:var(--r-key);
+    padding:15px 32px;font-size:24px;font-weight:800;cursor:pointer;letter-spacing:.06em;
+    box-shadow:0 4px 0 var(--save-d);transition:transform .07s ease,box-shadow .07s ease;
   }
-  #save:disabled{opacity:.4}
-  .escore{margin-left:auto;display:flex;align-items:baseline;gap:10px;padding-right:6px}
-  .escore .l{font-size:15px;font-weight:800}
-  .escore .n{font-size:38px;font-weight:800;color:#E01010;font-variant-numeric:tabular-nums;line-height:1}
+  #save:active,#calc:active{transform:translateY(3px);box-shadow:0 1px 0 var(--save-d)}
+  #save:disabled{background:#E3E8F0;color:#A9B4C4;box-shadow:0 3px 0 #CFD7E3}
+  .escore{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;padding-right:4px}
+  .escore .l{font-size:10.5px;font-weight:800;letter-spacing:.16em;color:var(--muted)}
+  .escore .n{font-size:40px;font-weight:800;color:var(--score);line-height:1.02;letter-spacing:-.03em}
 
-  /* sheets */
-  .sheet{position:fixed;inset:0;background:rgba(8,12,20,.55);display:none;align-items:flex-end;justify-content:center;z-index:60}
+  /* ---------- シート ---------- */
+  .sheet{
+    position:fixed;inset:0;background:rgba(8,14,28,.55);display:none;
+    align-items:flex-end;justify-content:center;z-index:60;
+    -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);
+  }
   .sheet.on{display:flex}
-  .card{background:#fff;width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:22px 20px calc(22px + var(--safe-bottom));max-height:88dvh;overflow:auto}
-  .card h2{margin:0 0 4px;font-size:19px}
-  .card .sub{margin:0 0 16px;color:var(--mute);font-size:13px}
-  .score{background:var(--navy);color:#fff;border-radius:14px;padding:16px;text-align:center;margin-bottom:14px}
-  .score .lab{font-size:11px;letter-spacing:.16em;opacity:.85}
-  .score .val{font-size:52px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums}
+  .card{
+    background:#fff;width:100%;max-width:520px;border-radius:22px 22px 0 0;
+    padding:22px 20px calc(22px + var(--safe-bottom));max-height:88dvh;overflow:auto;
+    box-shadow:0 -8px 32px rgba(8,14,28,.28);
+  }
+  .card h2{margin:0 0 4px;font-size:19px;letter-spacing:-.01em}
+  .card .sub{margin:0 0 16px;color:var(--muted);font-size:13px;line-height:1.6}
+  .score{background:var(--navy);color:#fff;border-radius:16px;padding:18px;text-align:center;margin-bottom:14px}
+  .score .lab{font-size:10.5px;letter-spacing:.2em;opacity:.75;font-weight:800}
+  .score .val{font-size:54px;font-weight:800;line-height:1.04;letter-spacing:-.03em;margin:2px 0}
   .score .sml{font-size:13px;opacity:.9}
   .rows{border-top:1px solid var(--line)}
-  .row{display:flex;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid var(--line);font-size:15px}
-  .chip{width:56px;text-align:center;border-radius:4px;color:#fff;font-weight:800;padding:4px 0;font-size:14px}
-  .row .t{color:#5A6675;font-variant-numeric:tabular-nums}
-  .row .del{margin-left:auto;background:none;border:0;color:#B4BDC8;font-size:20px;cursor:pointer;padding:2px 6px}
+  .row{display:flex;align-items:center;gap:12px;padding:11px 2px;border-bottom:1px solid var(--line);font-size:15px}
+  .chip{width:58px;text-align:center;border-radius:7px;color:#fff;font-weight:800;padding:5px 0;font-size:14px}
+  .row .t{color:#5A6675}
+  .row .del{margin-left:auto;background:none;border:0;color:#AEB8C6;font-size:20px;cursor:pointer;padding:2px 6px}
   .act{display:flex;flex-direction:column;gap:9px;margin-top:16px}
-  .btn{border:0;border-radius:10px;padding:15px;font-size:16px;font-weight:700;cursor:pointer;text-align:center}
-  .btn.primary{background:var(--save);color:#fff}
-  .btn.ghost{background:#F0F3F7;color:#3C4756}
-  .field{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line);gap:16px}
+  .btn{
+    border:0;border-radius:11px;padding:15px;font-size:16px;font-weight:700;cursor:pointer;text-align:center;
+    transition:transform .07s ease,box-shadow .07s ease;
+  }
+  .btn.primary{background:var(--save);color:#fff;box-shadow:0 3px 0 var(--save-d)}
+  .btn.primary:active{transform:translateY(2px);box-shadow:0 1px 0 var(--save-d)}
+  .btn.ghost{background:#EEF1F6;color:#3A465A}
+  .btn.ghost:active{background:#E3E8F0}
+  .field{display:flex;align-items:center;justify-content:space-between;padding:13px 0;border-bottom:1px solid var(--line);gap:16px}
   .field label{font-size:15px}
-  .field small{display:block;color:var(--mute);font-size:12px;margin-top:2px}
-  .field input{width:92px;padding:9px;border:1px solid var(--line);border-radius:8px;font-size:16px;text-align:right}
-  .prog{height:8px;background:#EDF0F4;border-radius:4px;overflow:hidden;margin:14px 0 6px}
-  .prog i{display:block;height:100%;width:0;background:var(--save)}
-  .note{font-size:12.5px;color:var(--mute);line-height:1.65;margin:10px 0 0}
-  .svbox{background:#0E1319;border-radius:10px;overflow:hidden;display:flex;justify-content:center}
+  .field small{display:block;color:var(--muted);font-size:12px;margin-top:3px;line-height:1.5}
+  .field input{width:92px;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:16px;text-align:right;background:#fff}
+  .prog{height:8px;background:#E9EDF3;border-radius:4px;overflow:hidden;margin:14px 0 6px}
+  .prog i{display:block;height:100%;width:0;background:var(--save);transition:width .2s linear}
+  .note{font-size:12.5px;color:var(--muted);line-height:1.65;margin:10px 0 0}
+  .svbox{background:#101623;border-radius:12px;overflow:hidden;display:flex;justify-content:center}
+  .svbox canvas,.svbox img{display:block;max-width:100%;height:auto}
   .log{
-    margin-top:14px;padding:10px 12px;background:#F5F7FA;border-radius:8px;
-    font-size:11.5px;line-height:1.7;color:#5A6675;white-space:pre-wrap;word-break:break-all;
+    margin-top:14px;padding:11px 13px;background:#F5F7FA;border:1px solid var(--line);border-radius:10px;
+    font-size:11.5px;line-height:1.75;color:#5A6675;white-space:pre-wrap;word-break:break-all;
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
   }
   .log:empty{display:none}
+  #expPrev video{width:100%;border-radius:12px;background:#000;margin-top:12px;display:block}
+  .dg{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:13.5px;line-height:1.55}
+  .dg b{flex:0 0 auto;width:20px;text-align:center}
+  .dg .ok{color:var(--d01)} .dg .ng{color:var(--d05)} .dg .wm{color:var(--d03)}
+  .dg span{color:#3A465A}
+  .dg small{display:block;color:var(--muted);font-size:12px;margin-top:3px}
+  .bd{border-top:1px solid var(--line);margin-top:4px}
+  .bd .h{font-size:10.5px;letter-spacing:.16em;color:var(--muted);padding:14px 0 5px;font-weight:800}
+  .bd .r{display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line);font-size:14.5px}
+  .bd .r .v{margin-left:auto;font-weight:700}
+  .bd .r.off{color:#9CA7B8}
+  .bd .tot{display:flex;padding:12px 2px 0;font-size:16px;font-weight:800}
+  .bd .tot .v{margin-left:auto}
+
   .toast{
-    position:fixed;left:50%;bottom:calc(84px + var(--safe-bottom));transform:translate(-50%,10px);
-    background:rgba(12,33,96,.94);color:#fff;font-size:13px;font-weight:700;
-    padding:11px 16px;border-radius:10px;z-index:70;opacity:0;pointer-events:none;
+    position:fixed;left:50%;bottom:calc(88px + var(--safe-bottom));transform:translate(-50%,10px);
+    background:rgba(10,27,68,.95);color:#fff;font-size:13px;font-weight:700;
+    padding:12px 17px;border-radius:11px;z-index:70;opacity:0;pointer-events:none;
     transition:opacity .18s ease,transform .18s ease;max-width:88vw;text-align:center;
+    box-shadow:0 6px 20px rgba(8,14,28,.3);
   }
   .toast.on{opacity:1;transform:translate(-50%,0)}
-  #expPrev video{width:100%;border-radius:10px;background:#000;margin-top:12px;display:block}
-  .svbox canvas,.svbox img{display:block;max-width:100%;height:auto}
-  .dg{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px;line-height:1.5}
-  .dg b{flex:0 0 auto;width:20px;text-align:center}
-  .dg .ok{color:#0FA958} .dg .ng{color:#C60D0D} .dg .wm{color:#E8842C}
-  .dg span{color:#3C4756}
-  .dg small{display:block;color:var(--mute);font-size:12px;margin-top:2px}
+
+  .mode{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+  .mode.hidden{display:none!important}
   .hidden{display:none!important}
 </style>
 </head>
@@ -255,6 +407,8 @@
     </div>
     <button id="menuBtn" aria-label="メニュー"><div><span></span><span></span><span></span></div></button>
   </header>
+
+  <button class="expbar hidden" id="expBar"><i id="expBarFill"></i><span id="expBarText"></span></button>
 
   <div class="stage">
     <div class="empty" id="empty">
@@ -279,12 +433,12 @@
   <div class="mode" id="modeE">
     <div class="pad">
       <div class="rowA">
-        <button class="ded b03" data-v="0.3" disabled>-0.3</button>
-        <button class="ded b05" data-v="0.5" disabled>-0.5</button>
-        <button class="ded b01" data-v="0.1" disabled>-0.1</button>
+        <button class="ded b03" data-v="0.3" disabled>−0.3</button>
+        <button class="ded b05" data-v="0.5" disabled>−0.5</button>
+        <button class="ded b01" data-v="0.1" disabled>−0.1</button>
       </div>
       <div class="rowB">
-        <button class="ded b10" data-v="1.0" disabled>-1.0</button>
+        <button class="ded b10" data-v="1.0" disabled>−1.0</button>
       </div>
     </div>
 
@@ -299,12 +453,23 @@
   </div>
 
   <div class="mode hidden" id="modeD">
-    <div class="dpad">
+    <div class="apps" id="apps">
+      <button data-app="fx" class="on">ゆか</button>
+      <button data-app="ph">あん馬</button>
+      <button data-app="sr">つり輪</button>
+      <button data-app="vt">跳馬</button>
+      <button data-app="pb">平行棒</button>
+      <button data-app="hb">鉄棒</button>
+    </div>
+
+    <div class="dpad" id="dpad">
       <div class="grp">
         <button class="gb" data-g="1" style="grid-area:g1">Ⅰ</button>
         <button class="gb" data-g="2" style="grid-area:g2">Ⅱ</button>
         <button class="gb" data-g="3" style="grid-area:g3">Ⅲ</button>
         <button class="gb" data-g="4" style="grid-area:g4">Ⅳ</button>
+        <button class="pb hidden" data-p="1" style="grid-area:p1">+0.1</button>
+        <button class="pb hidden" data-p="2" style="grid-area:p2">+0.2</button>
       </div>
       <div class="dif">
         <button class="db" data-d="A" style="grid-area:a">A</button>
@@ -317,6 +482,21 @@
         <button class="db" data-d="H" style="grid-area:h">H</button>
         <button class="db" data-d="I" style="grid-area:i">I</button>
       </div>
+    </div>
+
+    <div class="vault hidden" id="vaultPane">
+      <div class="vhead">
+        <input type="search" id="vSearch" placeholder="技名・番号で絞り込む" autocomplete="off">
+        <div class="vtabs" id="vTabs">
+          <button data-vg="0" class="on">全て</button>
+          <button data-vg="1">Ⅰ</button>
+          <button data-vg="2">Ⅱ</button>
+          <button data-vg="3">Ⅲ</button>
+          <button data-vg="4">Ⅳ</button>
+          <button data-vg="5">Ⅴ</button>
+        </div>
+      </div>
+      <div class="vlist" id="vList"></div>
     </div>
 
     <div class="recs" id="recs">
@@ -394,12 +574,36 @@
   </div>
 </div>
 
+<!-- 書き出し中にDへ移るか -->
+<div class="sheet" id="askD">
+  <div class="card">
+    <h2>このままDスコアを算出しますか？</h2>
+    <p class="sub">書き出しが終わるまで動画は再生され続けます。その再生に合わせて技を記録できます。進み具合は画面上部のバーに表示されます。</p>
+    <div class="act">
+      <button class="btn primary" id="askDYes">Dスコアを算出する</button>
+      <button class="btn ghost" id="askDNo">書き出しの進み具合を見る</button>
+    </div>
+  </div>
+</div>
+
+<!-- 着地加点 -->
+<div class="sheet" id="landSheet">
+  <div class="card">
+    <h2>着地加点</h2>
+    <p class="sub" id="landSub">着地でボーナスは付きますか？</p>
+    <div class="act">
+      <button class="btn primary" id="landYes">あり（+0.1）</button>
+      <button class="btn ghost" id="landNo">なし</button>
+    </div>
+  </div>
+</div>
+
 <!-- Dスコア内訳 -->
 <div class="sheet" id="dres">
   <div class="card">
     <h2>Dスコア</h2>
     <p class="sub" id="dSub"></p>
-    <div class="score" style="background:#12A44E">
+    <div class="score" style="background:#0B7B41">
       <div class="lab">D SCORE</div>
       <div class="val" id="dVal">0.0</div>
       <div class="sml" id="dCalc"></div>
@@ -466,7 +670,7 @@
 (() => {
   const $ = s => document.querySelector(s);
   const v = $('#v'), file = $('#file'), strip = $('#strip');
-  const COLORS = {'0.1':'#0FA958','0.3':'#E8842C','0.5':'#C60D0D','1.0':'#7B27A3'};
+  const COLORS = {'0.1':'#12A45A','0.3':'#EE8B12','0.5':'#D8202A','1.0':'#7B2FC4'};
   let marks = [], fileName = 'routine', blobOut = null, outExt = 'mp4';
 
   const cfg = () => ({
@@ -622,7 +826,7 @@
     const el = document.createElement('div');
     el.className = 'shot'; el.dataset.id = m.id;
     el.innerHTML = `<div class="load">…</div>
-      <span class="tag" style="background:${COLORS[m.label]}">-${m.label}</span>
+      <span class="tag" style="background:${COLORS[m.label]}">\u2212${m.label}</span>
       <span class="t">${stampTime(m.shot)}</span>
       <button class="x" aria-label="削除">×</button>`;
     el.addEventListener('click', ev => {
@@ -692,7 +896,7 @@
     const pad = Math.round(W * 0.025);
     const fs = Math.max(16, Math.round(H * 0.062));
     ctx.font = `800 ${fs}px -apple-system,"Hiragino Sans",system-ui,sans-serif`;
-    const label = '-' + m.label;
+    const label = '\u2212' + m.label;
     const tw = ctx.measureText(label).width + fs * 0.9, th = fs * 1.5;
     ctx.fillStyle = COLORS[m.label];
     roundRect(ctx, W - pad - tw, pad, tw, th, th * 0.25); ctx.fill();
@@ -730,7 +934,7 @@
 
   async function openShot(m){
     viewing = m;
-    $('#svTitle').textContent = `-${m.label} の場面`;
+    $('#svTitle').textContent = `\u2212${m.label} の場面`;
     $('#svSub').textContent = `押した位置 ${stampTime(m.at)} / 切り出し ${stampTime(m.shot)}`;
     const box = $('#svBox'); box.innerHTML = '';
     if (m.thumb){ const p = document.createElement('canvas'); p.width = m.thumb.width; p.height = m.thumb.height;
@@ -798,7 +1002,7 @@
     sheet.width = cols * cw + gap * (cols + 1);
     sheet.height = head + rows * ch + gap * (rows + 1);
     const x = sheet.getContext('2d');
-    x.fillStyle = '#0C2160'; x.fillRect(0, 0, sheet.width, sheet.height);
+    x.fillStyle = '#0A1B44'; x.fillRect(0, 0, sheet.width, sheet.height);
     x.fillStyle = '#fff'; x.textBaseline = 'middle';
     x.textAlign = 'left';
     x.font = '800 40px -apple-system,"Hiragino Sans",system-ui,sans-serif';
@@ -946,7 +1150,7 @@
     [...marks].sort((a,b) => a.at - b.at).forEach(m => {
       const el = document.createElement('div');
       el.className = 'row';
-      el.innerHTML = `<span class="chip" style="background:${COLORS[m.label]}">-${m.label}</span>
+      el.innerHTML = `<span class="chip" style="background:${COLORS[m.label]}">\u2212${m.label}</span>
         <span class="t">${stampTime(m.at)}</span>
         <button class="del" aria-label="削除">×</button>`;
       el.querySelector('.del').onclick = () => {
@@ -994,7 +1198,7 @@
     const bh = H * 0.075, r = bh * 0.24, pad = W * 0.025;
     ctx.save();
     ctx.font = `800 ${bh*0.6}px -apple-system,"Hiragino Sans",system-ui,sans-serif`;
-    const label = '-' + m.label;
+    const label = '\u2212' + m.label;
     const bw = ctx.measureText(label).width + bh * 0.85;
     const x = W - pad - bw + slide, y = pad + m.slot * (bh * 1.16);
     ctx.globalAlpha = alpha;
@@ -1020,7 +1224,7 @@
     const x = W - pad - bw + slide, y = H - pad - bh - m.slot * (bh * 1.16);
     ctx.globalAlpha = alpha;
     ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = H*0.018; ctx.shadowOffsetY = H*0.004;
-    ctx.fillStyle = '#12A44E';
+    ctx.fillStyle = '#12A45A';
     roundRect(ctx, x, y, bw, bh, r); ctx.fill();
     ctx.shadowColor = 'transparent';
     ctx.fillStyle = '#fff';
@@ -1061,13 +1265,27 @@
   }
 
   /* --- 書き出し本体 --- */
-  let expState = null, wakeLock = null, activeStop = null;
+  let expState = null, wakeLock = null, activeStop = null, exporting = false;
+  function setProgress(p, text){
+    $('#bar').style.width = p + '%';
+    $('#pct').textContent = text;
+    $('#expBarFill').style.width = p + '%';
+    $('#expBarText').textContent = '書き出し中 ' + p + '%　タップで詳細';
+  }
   const logLines = [];
   const elog = (s) => { logLines.push(s); $('#expLog').textContent = logLines.join('\n'); };
 
   $('#export').onclick = () => doExport();
-  $('#cancelExp').onclick = () => { $('#exporting').classList.remove('on'); expState = null; };
-  $('#closeExp').onclick = () => $('#exporting').classList.remove('on');
+  $('#cancelExp').onclick = () => {
+    $('#exporting').classList.remove('on');
+    $('#expBar').classList.add('hidden');
+    expState = null;
+  };
+  $('#closeExp').onclick = () => {
+    $('#exporting').classList.remove('on');
+    $('#expBar').classList.add('hidden');
+    $('#expBar').classList.remove('done');
+  };
 
   function doExport(){
     if (!v.duration){ alert('先に動画を選んでください。'); return; }
@@ -1078,6 +1296,9 @@
     $('#startWrap').style.display = '';
     $('#bar').style.width = '0%';
     $('#pct').textContent = '—';
+    $('#expBar').classList.add('hidden');
+    $('#expBar').classList.remove('done');
+    $('#expBarFill').style.width = '0%';
     $('#expTitle').textContent = '動画の書き出し';
     $('#result').classList.remove('on');
     $('#exporting').classList.add('on');
@@ -1106,11 +1327,29 @@
     $('#startWrap').style.display = 'none';
     $('#pct').textContent = '開始しています…';
     try { runCapture(expState.mime); }
-    catch(err){ failExport(err); }
+    catch(err){ failExport(err); return; }
+    setTimeout(() => { if (exporting) $('#askD').classList.add('on'); }, 400);
+  };
+
+  // 書き出しの裏でDスコアを付ける
+  $('#askDYes').onclick = () => {
+    $('#askD').classList.remove('on');
+    $('#exporting').classList.remove('on');
+    $('#expBar').classList.remove('hidden');
+    gotoD();
+  };
+  $('#askDNo').onclick = () => $('#askD').classList.remove('on');
+  $('#expBar').onclick = () => {
+    $('#exporting').classList.add('on');
+    $('#expBar').classList.add('hidden');
   };
 
   function failExport(err){
     elog('エラー: ' + (err && err.message ? err.message : String(err)));
+    exporting = false;
+    $('#expBar').classList.add('hidden');
+    $('#askD').classList.remove('on');
+    $('#exporting').classList.add('on');
     if (activeStop){ try { activeStop('エラーのため中断'); } catch(e){} activeStop = null; }
     try { v.pause(); } catch(e){}
     $('#expTitle').textContent = '書き出しに失敗しました';
@@ -1199,6 +1438,12 @@
       $('#expTitle').textContent = '書き出し完了';
       $('#bar').style.width = '100%';
       $('#pct').textContent = `完了（${(blob.size/1048576).toFixed(1)} MB）`;
+      exporting = false;
+      if (!$('#expBar').classList.contains('hidden')){
+        $('#expBar').classList.add('done');
+        $('#expBarText').textContent = '書き出し完了 — タップして保存';
+        toast('書き出しが完了しました');
+      }
       $('#saveAct').style.display = '';
       const url = URL.createObjectURL(blob);
       $('#expPrev').innerHTML = `<video src="${url}" controls playsinline preload="metadata"></video>`;
@@ -1213,6 +1458,7 @@
     if (monitorGain) monitorGain.gain.value = 0.15; else v.volume = 0.15;
     const playing = v.play();               // ユーザー操作の直後に同期的に呼ぶ
     rec.start(250);
+    exporting = true;
     elog('録画開始');
     if (playing && playing.catch) playing.catch(err => {
       stop('再生できず');
@@ -1245,9 +1491,7 @@
         if (age >= 0 && age <= c.dur){ m.slot = dslot++; drawDStamp(ctx, W, H, m, age, c.dur); }
       }
       drawHud(ctx, W, H, finalE, finalD);
-      const p = Math.round(t / v.duration * 100);
-      $('#bar').style.width = p + '%';
-      $('#pct').textContent = p + '%';
+      setProgress(Math.round(t / v.duration * 100), Math.round(t / v.duration * 100) + '%');
       if (v.ended || v.paused){ stop(v.ended ? '終端' : '一時停止'); return; }
       requestAnimationFrame(draw);
       } catch(err){ failExport(err); }
@@ -1290,9 +1534,117 @@
   /* ============ Dスコア算出 ============ */
   const DV = { A:1, B:2, C:3, D:4, E:5, F:6, G:7, H:8, I:9 };
   const ROM = ['', 'Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ'];
+  const RM5 = ['', 'Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ'];
   const p1 = n => (n / 10).toFixed(1);
-  let dRecs = [], pg = null, pd = null, dseq = 0;
 
+  /* 種目ごとの規則
+     dismount : グループⅣを終末技として扱う（ゆかは扱わない）
+     bonus    : 組み合わせ／連続技の加点ボタンを出す
+     landing  : 算出時に着地加点を聞く
+     vault    : 価値点一覧から選ぶ                                       */
+  const APPS = [
+    { id:'fx', name:'ゆか',   dismount:false, bonus:true,  landing:true,  vault:false, bonusName:'組み合わせ加点' },
+    { id:'ph', name:'あん馬', dismount:true,  bonus:false, landing:false, vault:false },
+    { id:'sr', name:'つり輪', dismount:true,  bonus:false, landing:true,  vault:false },
+    { id:'vt', name:'跳馬',   dismount:false, bonus:false, landing:true,  vault:true  },
+    { id:'pb', name:'平行棒', dismount:true,  bonus:false, landing:true,  vault:false },
+    { id:'hb', name:'鉄棒',   dismount:true,  bonus:true,  landing:true,  vault:false, bonusName:'連続技加点' }
+  ];
+  let app = APPS[0];
+  let dRecs = [], pg = null, pd = null, dseq = 0;
+  let vaultPick = null, landing = null;
+
+  /* 跳馬価値点一覧表 FIG MAG Vault Value Table 2025-2028
+     [番号, 価値点(0.1=1), グループ, 技名] */
+  const VAULTS = [
+    [101,24,1,'前転とび前方かかえ込み宙返りひねり／前転とびひねり後方かかえ込み宙返り（クエルボ）'],
+    [102,28,1,'前転とび前方かかえ込み宙返り1回ひねり／クエルボひねり'],
+    [103,32,1,'前転とび前方かかえ込み宙返り3/2ひねり／クエルボ1回ひねり（クロル）'],
+    [104,36,1,'前転とび前方かかえ込み宙返り2回ひねり／クエルボ3/2ひねり（カンバス）'],
+    [107,28,1,'前転とび前方屈身宙返りひねり／屈身クエルボ'],
+    [108,32,1,'前転とび前方屈身宙返り1回ひねり／屈身クエルボひねり'],
+    [109,36,1,'前転とび前方屈身宙返り3/2ひねり／屈身クエルボ1回ひねり'],
+    [113,36,1,'前転とび前方伸身宙返りひねり／伸身クエルボ'],
+    [114,40,1,'前転とび前方伸身宙返り1回ひねり／伸身クエルボひねり'],
+    [115,44,1,'前転とび前方伸身宙返り3/2ひねり／伸身クエルボ1回ひねり（ロウ・ユン）'],
+    [116,48,1,'前転とび前方伸身宙返り2回ひねり／伸身クエルボ3/2ひねり'],
+    [117,52,1,'前転とび前方伸身宙返り5/2ひねり（ヨー2）'],
+    [118,56,1,'前転とび前方伸身宙返り3回ひねり（ヤン・ハクソン）'],
+    [119,24,1,'側転とび1/4ひねり前方かかえ込み宙返りひねり（カサマツ）／ツカハラ1回ひねり'],
+    [120,28,1,'ツカハラ3/2ひねり／カサマツひねり'],
+    [121,32,1,'ツカハラ2回ひねり（バルビエリ）'],
+    [122,36,1,'ツカハラ5/2ひねり'],
+    [125,36,1,'伸身カサマツ／伸身ツカハラ1回ひねり'],
+    [126,40,1,'伸身カサマツひねり／伸身ツカハラ3/2ひねり'],
+    [127,44,1,'伸身カサマツ1回ひねり（アカピアン）／伸身ツカハラ2回ひねり'],
+    [131,48,1,'伸身カサマツ3/2ひねり（ドリッグス）'],
+    [132,52,1,'伸身カサマツ2回ひねり（ロペス）'],
+    [133,56,1,'伸身カサマツ5/2ひねり（ヨネクラ）／伸身ツカハラ7/2ひねり'],
+
+    [201,12,2,'前転とび'],
+    [202,14,2,'前転とびひねり'],
+    [203,16,2,'前転とび1回ひねり'],
+    [204,18,2,'前転とび3/2ひねり'],
+    [205,20,2,'前転とび2回ひねり'],
+    [206,22,2,'前転とび5/2ひねり（ツィガンコフ）'],
+    [207,20,2,'前転とび前方かかえ込み宙返り'],
+    [213,24,2,'前転とび前方屈身宙返り'],
+    [219,32,2,'前転とび前方伸身宙返り'],
+    [225,48,2,'前転とび前方かかえ込み2回宙返り（ローチェ）'],
+    [226,52,2,'ローチェひねり（ドラグレスク）'],
+    [228,52,2,'前転とび前方かかえ込み宙返りひねり後方かかえ込み宙返り（ジマーマン）'],
+    [231,52,2,'前転とび前方屈身2回宙返り（ブラニク）'],
+    [232,56,2,'屈身ドラグレスク（リ・セグァン2）'],
+
+    [301,12,3,'側転とび1/4ひねり'],
+    [302,14,3,'側転とび3/4ひねり'],
+    [303,16,3,'側転とび5/4ひねり'],
+    [307,18,3,'側転とび1/4ひねり後方かかえ込み宙返り（ツカハラ）'],
+    [308,20,3,'屈身ツカハラ'],
+    [309,20,3,'ツカハラひねり'],
+    [313,28,3,'伸身ツカハラ'],
+    [314,32,3,'伸身ツカハラひねり'],
+    [319,48,3,'ツカハラ後方かかえ込み宙返り（ヨー）'],
+    [320,52,3,'屈身ツカハラ後方屈身宙返り（ルー・ユーフ）'],
+    [321,56,3,'ツカハラ後方かかえ込み宙返り1回ひねり（リ・セグァン）'],
+
+    [401,24,4,'ユルチェンコ1回ひねり'],
+    [402,28,4,'ユルチェンコ3/2ひねり'],
+    [403,32,4,'ユルチェンコ2回ひねり'],
+    [404,36,4,'伸身ユルチェンコ1回ひねり'],
+    [405,40,4,'伸身ユルチェンコ3/2ひねり'],
+    [406,44,4,'伸身ユルチェンコ2回ひねり'],
+    [407,48,4,'伸身ユルチェンコ5/2ひねり（シューフェルト）'],
+    [408,52,4,'伸身ユルチェンコ3回ひねり（シライ／キム・ヒフン）'],
+    [409,56,4,'伸身ユルチェンコ7/2ひねり（シライ2）'],
+    [413,26,4,'ロンダート、ひねり前転とび前方かかえ込み宙返りひねり'],
+    [414,30,4,'ロンダート、ひねり前転とび前方屈身宙返りひねり（ネモフ）'],
+    [415,38,4,'ロンダート、ひねり前転とび前方伸身宙返りひねり（ハッチェオン）'],
+    [416,42,4,'ロンダート、ひねり前転とび前方伸身宙返り1回ひねり'],
+    [417,46,4,'ロンダート、ひねり前転とび前方伸身宙返り3/2ひねり'],
+    [419,50,4,'ロンダート、ひねり前転とび前方伸身宙返り2回ひねり'],
+    [420,54,4,'ロンダート、ひねり前転とび前方伸身宙返り5/2ひねり（リー・シャオペン）'],
+
+    [501,12,5,'ロンダート、後転とび'],
+    [502,14,5,'ロンダート、後転とびひねり'],
+    [503,16,5,'ロンダート、後転とび1回ひねり'],
+    [507,18,5,'ロンダート、後転とび後方かかえ込み宙返り（ユルチェンコ）'],
+    [508,20,5,'ユルチェンコひねり'],
+    [509,20,5,'屈身ユルチェンコ'],
+    [510,28,5,'伸身ユルチェンコ'],
+    [511,32,5,'伸身ユルチェンコひねり'],
+    [513,14,5,'ロンダート、ひねり前転とび'],
+    [514,16,5,'ロンダート、ひねり前転とびひねり'],
+    [515,18,5,'ロンダート、ひねり前転とび1回ひねり'],
+    [516,22,5,'ロンダート、ひねり前転とび前方かかえ込み宙返り'],
+    [517,26,5,'ロンダート、ひねり前転とび前方屈身宙返り'],
+    [518,34,5,'ロンダート、ひねり前転とび前方伸身宙返り'],
+    [519,48,5,'ユルチェンコ後方かかえ込み宙返り（メリサニディス）'],
+    [520,52,5,'屈身メリサニディス（ヤン・ウェイ）'],
+    [521,50,5,'ロンダート、ひねり前転とび前方かかえ込み2回宙返り']
+  ];
+
+  /* --- モード切替 --- */
   $('#seg').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     $('#seg').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
@@ -1300,7 +1652,29 @@
     $('#modeD').classList.toggle('hidden', !d);
     $('#modeE').classList.toggle('hidden', d);
   });
+  const gotoD = () => $('#seg').querySelector('[data-mode="D"]').click();
 
+  /* --- 種目の切替 --- */
+  $('#apps').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    app = APPS.find(a => a.id === b.dataset.app);
+    $('#apps').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    applyApp();
+  });
+  function applyApp(){
+    $('#dpad').classList.toggle('hidden', !!app.vault);
+    $('#vaultPane').classList.toggle('hidden', !app.vault);
+    $('#recs').classList.toggle('hidden', !!app.vault);
+    document.querySelectorAll('.pb').forEach(b => b.classList.toggle('hidden', !app.bonus));
+    $('#dpad').classList.toggle('wide', !!app.bonus);
+    // ゆかはグループⅣも通常グループなので終末技の制限を外す
+    landing = null;
+    clearPend();
+    if (app.vault) renderVault();
+    renderD();
+  }
+
+  /* --- グループ・難度・加点の入力 --- */
   const clearPend = () => {
     pg = pd = null;
     document.querySelectorAll('.gb,.db').forEach(b => b.classList.remove('sel'));
@@ -1317,10 +1691,23 @@
     const same = pd === d; clearPend();
     if (!same){ pd = d; b.classList.add('sel'); }
   });
+  document.querySelectorAll('.pb').forEach(b => b.onclick = () => {
+    const val = +b.dataset.p;
+    const skills = dRecs.filter(r => r.type !== 'bonus');
+    if (skills.length < 2){ toast('加点は技を2つ記録してから押してください'); return; }
+    const a = skills[skills.length - 2], c = skills[skills.length - 1];
+    dRecs.push({
+      id: Date.now() + Math.random(), type:'bonus', val, i: dseq++,
+      text: `${ROM[a.g]}${a.d}-${ROM[c.g]}${c.d}`,
+      at: v.duration ? v.currentTime : 0
+    });
+    if (navigator.vibrate) navigator.vibrate(14);
+    renderD();
+  });
+
   function commitD(g, d){
-    if (g === 4){
-      // 終末技は1技のみ。すでにあれば置き換える
-      const prev = dRecs.find(r => r.g === 4);
+    if (g === 4 && app.dismount){
+      const prev = dRecs.find(r => r.g === 4);   // 終末技は1技のみ
       if (prev){
         dRecs = dRecs.filter(r => r.g !== 4);
         toast(`終末技を ${ROM[4]}${prev.d} → ${ROM[4]}${d} に置き換えました`);
@@ -1341,44 +1728,72 @@
     toastTimer = setTimeout(() => el.classList.remove('on'), 2200);
   }
 
-  // ①〜⑤の計算。小数誤差を避けるため内部は 0.1 = 1 の整数で扱う
+  /* --- 計算。小数誤差を避けるため内部は 0.1 = 1 の整数で扱う --- */
   function calcD(){
+    const land = landing ? 1 : 0;
+
+    if (app.vault){
+      const base = vaultPick ? vaultPick[1] : 0;
+      return { vault:true, base, land, kept:[], cut:[], dis:null, seven:[], over:[],
+               counted:[], diff:base, grp:0, gp:{}, bonus:0, total: base + land };
+    }
+
+    const skills = dRecs.filter(r => r.type !== 'bonus');
     const kept = [], cut = [];
     for (let g = 1; g <= 4; g++){
-      const list = dRecs.filter(r => r.g === g).sort((a,b) => b.val - a.val || a.i - b.i);
+      const list = skills.filter(r => r.g === g).sort((a,b) => b.val - a.val || a.i - b.i);
       kept.push(...list.slice(0, 4));   // ① 同一グループは上位4つまで
       cut.push(...list.slice(4));
     }
-    const dis = kept.find(r => r.g === 4) || null;   // ② 終末技(グループⅣは1技のみ)
-    const rest = kept.filter(r => r !== dis).sort((a,b) => b.val - a.val || a.i - b.i);
-    const seven = rest.slice(0, 7);     // ③ 残りから難度順に7技
-    const over = rest.slice(7);
-    const counted = dis ? [dis, ...seven] : seven;
+
+    let dis = null, seven, over, counted;
+    if (app.dismount){
+      dis = kept.find(r => r.g === 4) || null;                  // ② 終末技
+      const rest = kept.filter(r => r !== dis).sort((a,b) => b.val - a.val || a.i - b.i);
+      seven = rest.slice(0, 7);                                 // ③ 残りから7技
+      over = rest.slice(7);
+      counted = dis ? [dis, ...seven] : seven;
+    } else {
+      const all = kept.slice().sort((a,b) => b.val - a.val || a.i - b.i);
+      seven = all.slice(0, 8);                                  // ゆか：終末技なし、上位8technique
+      over = all.slice(8);
+      counted = seven;
+    }
 
     let diff = 0;
     const gp = {};
-    if (dis){ diff += dis.val; gp[4] = Math.min(5, dis.val); }
-    seven.forEach(r => diff += r.val);
-    if (counted.some(r => r.g === 1)) gp[1] = 5;                        // ④
-    for (const g of [2, 3]){                                            // ⑤
+    counted.forEach(r => diff += r.val);
+    if (dis) gp[4] = Math.min(5, dis.val);                      // ② グループ点(上限0.5)
+    if (counted.some(r => r.g === 1)) gp[1] = 5;                // ④ グループⅠ
+    const others = app.dismount ? [2,3] : [2,3,4];              // ⑤ Ⅱ・Ⅲ(ゆかはⅣも同じ扱い)
+    for (const g of others){
       const c = counted.filter(r => r.g === g);
       if (c.length) gp[g] = c.some(r => r.val >= 4) ? 5 : 3;
     }
     const grp = [1,2,3,4].reduce((s,g) => s + (gp[g] || 0), 0);
-    return { kept, cut, dis, seven, over, counted, diff, grp, gp, total: diff + grp };
+    const bonus = dRecs.filter(r => r.type === 'bonus').reduce((s,r) => s + r.val, 0);
+
+    return { vault:false, kept, cut, dis, seven, over, counted, diff, grp, gp, bonus, land,
+             total: diff + grp + bonus + land };
   }
 
+  /* --- 記録の描画 --- */
   function renderD(){
     const res = calcD();
     $('#dNow').textContent = p1(res.total);
     const box = $('#recs');
     box.querySelectorAll('.rec').forEach(n => n.remove());
     $('#dhint').style.display = dRecs.length ? 'none' : '';
+    $('#dhint').textContent = app.bonus
+      ? 'グループ → 難度（順不同）でタップ。加点は直前の2技に付きます'
+      : 'グループ → 難度（順不同）でタップすると、ここに技が並びます';
     const off = new Set([...res.cut, ...res.over].map(r => r.id));
     dRecs.forEach(r => {
       const el = document.createElement('div');
-      el.className = 'rec' + (off.has(r.id) ? ' drop' : '');
-      el.innerHTML = `<span class="g">${ROM[r.g]}</span><span class="d">${r.d}</span><button class="x" aria-label="削除">×</button>`;
+      el.className = 'rec' + (r.type === 'bonus' ? ' bonus' : (off.has(r.id) ? ' drop' : ''));
+      el.innerHTML = r.type === 'bonus'
+        ? `<span class="b">${r.text}(+${p1(r.val)})</span><button class="x" aria-label="削除">×</button>`
+        : `<span class="g">${ROM[r.g]}</span><span class="d">${r.d}</span><button class="x" aria-label="削除">×</button>`;
       el.querySelector('.x').onclick = ev => {
         ev.stopPropagation();
         dRecs = dRecs.filter(x => x.id !== r.id);
@@ -1390,45 +1805,121 @@
     box.scrollLeft = box.scrollWidth;
   }
 
+  /* --- 跳馬：価値点一覧 --- */
+  let vFilter = 0;
+  $('#vTabs').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    vFilter = +b.dataset.vg;
+    $('#vTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    renderVault();
+  });
+  $('#vSearch').addEventListener('input', renderVault);
+
+  function renderVault(){
+    const q = $('#vSearch').value.trim();
+    const list = VAULTS.filter(v2 =>
+      (!vFilter || v2[2] === vFilter) &&
+      (!q || v2[3].includes(q) || String(v2[0]).includes(q)));
+    const box = $('#vList');
+    box.innerHTML = '';
+    if (!list.length){
+      box.innerHTML = '<div class="vempty">該当する技がありません</div>';
+      return;
+    }
+    list.forEach(v2 => {
+      const el = document.createElement('div');
+      el.className = 'vrow' + (vaultPick && vaultPick[0] === v2[0] ? ' on' : '');
+      el.innerHTML = `<span class="no">${RM5[v2[2]]}<br>${v2[0]}</span>
+        <span class="val">${p1(v2[1])}</span><span class="nm">${v2[3]}</span>`;
+      el.onclick = () => {
+        vaultPick = (vaultPick && vaultPick[0] === v2[0]) ? null : v2;
+        renderVault(); renderD();
+      };
+      box.appendChild(el);
+    });
+  }
+
   const dName = r => ROM[r.g] + r.d;
 
+  /* --- 算出 --- */
   $('#calc').onclick = () => {
-    if (!dRecs.length){ alert('技が記録されていません。'); return; }
+    if (app.vault ? !vaultPick : !dRecs.length){
+      toast(app.vault ? '技を一覧から選んでください' : '技が記録されていません');
+      return;
+    }
+    if (app.landing){
+      $('#landSub').textContent = `${app.name}の着地でボーナスは付きますか？`;
+      $('#landSheet').classList.add('on');
+      return;
+    }
+    showD();
+  };
+  $('#landYes').onclick = () => { landing = true;  $('#landSheet').classList.remove('on'); showD(); };
+  $('#landNo').onclick  = () => { landing = false; $('#landSheet').classList.remove('on'); showD(); };
+
+  function showD(){
     const res = calcD();
     $('#dVal').textContent = p1(res.total);
-    $('#dCalc').textContent = `難度点 ${p1(res.diff)} ＋ グループ点 ${p1(res.grp)}`;
-    $('#dSub').textContent = `記録 ${dRecs.length}技 ／ カウント ${res.counted.length}技`;
+    $('#dSub').textContent = app.name + (app.vault
+      ? (vaultPick ? `　No.${vaultPick[0]}` : '')
+      : `　記録 ${dRecs.filter(r => r.type !== 'bonus').length}技 ／ カウント ${res.counted.length}技`);
 
-    let h = '<div class="h">終末技（グループⅣ・1技）</div>';
-    h += res.dis
-      ? `<div class="r"><span>${dName(res.dis)}</span><span class="v">難度 ${p1(res.dis.val)}／グループ ${p1(Math.min(5, res.dis.val))}</span></div>`
-      : '<div class="r off"><span>グループⅣの技なし</span><span class="v">0.0</span></div>';
+    let h = '';
+    if (res.vault){
+      $('#dCalc').textContent = `価値点 ${p1(res.base)}${res.land ? ' ＋ 着地 0.1' : ''}`;
+      h += '<div class="h">選んだ技</div>';
+      h += `<div class="r"><span>${RM5[vaultPick[2]]} No.${vaultPick[0]}　${vaultPick[3]}</span><span class="v">${p1(res.base)}</span></div>`;
+    } else {
+      $('#dCalc').textContent = `難度点 ${p1(res.diff)} ＋ グループ点 ${p1(res.grp)}`
+        + (res.bonus ? ` ＋ 加点 ${p1(res.bonus)}` : '') + (res.land ? ' ＋ 着地 0.1' : '');
 
-    h += '<div class="h">カウント技（最大7）</div>';
-    res.seven.forEach(r => h += `<div class="r"><span>${dName(r)}</span><span class="v">${p1(r.val)}</span></div>`);
-    if (!res.seven.length) h += '<div class="r off"><span>なし</span><span class="v">0.0</span></div>';
+      if (app.dismount){
+        h += '<div class="h">終末技（グループⅣ・1技）</div>';
+        h += res.dis
+          ? `<div class="r"><span>${dName(res.dis)}</span><span class="v">難度 ${p1(res.dis.val)}／グループ ${p1(Math.min(5, res.dis.val))}</span></div>`
+          : '<div class="r off"><span>グループⅣの技なし</span><span class="v">0.0</span></div>';
+      }
 
-    if (res.over.length || res.cut.length){
-      h += '<div class="h">カウント外</div>';
-      res.over.forEach(r => h += `<div class="r off"><span>${dName(r)}</span><span class="v">8技を超過</span></div>`);
-      res.cut.forEach(r => h += `<div class="r off"><span>${dName(r)}</span><span class="v">同一グループ5つめ以降</span></div>`);
+      h += `<div class="h">カウント技（最大${app.dismount ? 7 : 8}）</div>`;
+      res.seven.forEach(r => h += `<div class="r"><span>${dName(r)}</span><span class="v">${p1(r.val)}</span></div>`);
+      if (!res.seven.length) h += '<div class="r off"><span>なし</span><span class="v">0.0</span></div>';
+
+      if (res.over.length || res.cut.length){
+        h += '<div class="h">カウント外</div>';
+        res.over.forEach(r => h += `<div class="r off"><span>${dName(r)}</span><span class="v">8技を超過</span></div>`);
+        res.cut.forEach(r => h += `<div class="r off"><span>${dName(r)}</span><span class="v">同一グループ5つめ以降</span></div>`);
+      }
+
+      h += '<div class="h">グループ点</div>';
+      [1,2,3,4].forEach(g => {
+        const val = res.gp[g] || 0;
+        const memo = g === 1 ? (val ? 'カウントあり' : 'カウントなし')
+          : (g === 4 && app.dismount) ? (res.dis ? `終末技 ${res.dis.d}（上限0.5）` : '終末技なし')
+          : (val === 5 ? 'D難度以上あり' : val === 3 ? 'A〜C難度のみ' : 'カウントなし');
+        h += `<div class="r${val ? '' : ' off'}"><span>${ROM[g]}</span><span>${memo}</span><span class="v">${p1(val)}</span></div>`;
+      });
+
+      const bs = dRecs.filter(r => r.type === 'bonus');
+      if (app.bonus){
+        h += `<div class="h">${app.bonusName}</div>`;
+        if (bs.length) bs.forEach(r => h += `<div class="r"><span>${r.text}</span><span class="v">+${p1(r.val)}</span></div>`);
+        else h += '<div class="r off"><span>加点なし</span><span class="v">0.0</span></div>';
+      }
     }
 
-    h += '<div class="h">グループ点</div>';
-    [1,2,3,4].forEach(g => {
-      const val = res.gp[g] || 0;
-      const memo = g === 1 ? (val ? 'カウントあり' : 'カウントなし')
-        : g === 4 ? (res.dis ? `終末技 ${res.dis.d}（上限0.5）` : '終末技なし')
-        : (val === 5 ? 'D難度以上あり' : val === 3 ? 'A〜C難度のみ' : 'カウントなし');
-      h += `<div class="r${val ? '' : ' off'}"><span>${ROM[g]}</span><span>${memo}</span><span class="v">${p1(val)}</span></div>`;
-    });
-
-    h += `<div class="tot"><span>難度点</span><span class="v">${p1(res.diff)}</span></div>`;
-    h += `<div class="tot"><span>グループ点</span><span class="v">${p1(res.grp)}</span></div>`;
-    h += `<div class="tot" style="border-top:1px solid #DCE1E8;margin-top:8px;padding-top:12px"><span>Dスコア</span><span class="v">${p1(res.total)}</span></div>`;
+    if (res.vault){
+      h += `<div class="tot"><span>価値点</span><span class="v">${p1(res.base)}</span></div>`;
+    } else {
+      h += `<div class="tot"><span>難度点</span><span class="v">${p1(res.diff)}</span></div>`;
+      h += `<div class="tot"><span>グループ点</span><span class="v">${p1(res.grp)}</span></div>`;
+      if (app.bonus) h += `<div class="tot"><span>${app.bonusName}</span><span class="v">${p1(res.bonus)}</span></div>`;
+    }
+    if (app.landing) h += `<div class="tot"><span>着地加点（${res.land ? 'あり' : 'なし'}）</span><span class="v">${p1(res.land)}</span></div>`;
+    h += `<div class="tot" style="border-top:1px solid #DFE5EE;margin-top:8px;padding-top:12px"><span>Dスコア</span><span class="v">${p1(res.total)}</span></div>`;
     $('#dBreak').innerHTML = h;
     $('#dres').classList.add('on');
-  };
+    renderD();
+  }
 
   $('#dClose').onclick = () => $('#dres').classList.remove('on');
   $('#dApply').onclick = () => {
@@ -1437,20 +1928,23 @@
   };
   $('#dCopy').onclick = async () => {
     const res = calcD(), b = $('#dCopy'), label = b.textContent;
-    const lines = [
-      fileName,
-      `Dスコア: ${p1(res.total)}（難度点 ${p1(res.diff)} + グループ点 ${p1(res.grp)}）`,
-      '終末技: ' + (res.dis ? dName(res.dis) : 'なし'),
-      'カウント技: ' + (res.seven.map(dName).join(' ') || 'なし'),
-      'グループ点: ' + [1,2,3,4].map(g => `${ROM[g]}${p1(res.gp[g] || 0)}`).join(' '),
-      '記録順: ' + dRecs.map(dName).join(' ')
-    ];
+    const lines = [ fileName, `種目: ${app.name}`, `Dスコア: ${p1(res.total)}` ];
+    if (res.vault){
+      lines.push(`技: No.${vaultPick[0]} ${vaultPick[3]}（${p1(res.base)}）`);
+    } else {
+      lines.push(`内訳: 難度点 ${p1(res.diff)} + グループ点 ${p1(res.grp)}`
+        + (res.bonus ? ` + 加点 ${p1(res.bonus)}` : '') + (res.land ? ' + 着地 0.1' : ''));
+      if (app.dismount) lines.push('終末技: ' + (res.dis ? dName(res.dis) : 'なし'));
+      lines.push('カウント技: ' + (res.seven.map(dName).join(' ') || 'なし'));
+      lines.push('グループ点: ' + [1,2,3,4].map(g => `${ROM[g]}${p1(res.gp[g] || 0)}`).join(' '));
+      lines.push('記録順: ' + dRecs.map(r => r.type === 'bonus' ? `${r.text}(+${p1(r.val)})` : dName(r)).join(' '));
+    }
     try { await navigator.clipboard.writeText(lines.join('\n')); b.textContent = 'コピーしました'; }
     catch { b.textContent = 'コピーできませんでした'; }
     setTimeout(() => b.textContent = label, 1600);
   };
 
-  renderD();
+  applyApp();
 })();
 </script>
 <script>
