@@ -1,7 +1,7 @@
 /* JudgymPocket - service worker
    アプリ本体をキャッシュして、オフラインでも起動できるようにする。
    ファイルを更新したら CACHE のバージョン番号を上げること。 */
-const CACHE = 'judgympocket-v8';
+const CACHE = 'judgympocket-v9';
 const ASSETS = [
   './',
   './index.html',
