@@ -1,18 +1,18 @@
 /* JudgymPocket - service worker
    アプリ本体をキャッシュして、オフラインでも起動できるようにする。
    ファイルを更新したら CACHE のバージョン番号を上げること。 */
-const CACHE = 'judgympocket-v9';
+const CACHE = 'judgympocket-v11';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/icon-maskable-192.png',
-  './icons/icon-maskable-512.png',
-  './icons/apple-touch-icon.png',
-  './icons/favicon-32.png',
-  './icons/favicon.ico'
+  './icon-192.png',
+  './icon-512.png',
+  './icon-maskable-192.png',
+  './icon-maskable-512.png',
+  './apple-touch-icon.png',
+  './favicon-32.png',
+  './favicon.ico'
 ];
 
 self.addEventListener('install', e => {
