@@ -9,9 +9,9 @@
 <meta name="theme-color" content="#0A1B44">
 <meta name="description" content="演技動画に減点を記録して、スタンプ入り動画とEスコアを残す体操採点アプリ">
 <link rel="manifest" href="./manifest.json">
-<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
-<link rel="icon" href="./icons/favicon.ico" sizes="any">
-<link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="icon" href="./favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png">
 <title>JudgymPocket</title>
 <style>
   /* ===========================================================
@@ -1123,14 +1123,38 @@
         maskable ? null : 'なくても追加はできますが、丸型に切り抜かれたときに欠けます。');
     }
 
-    // 5. Service Worker
+    // 5. 必要なファイルが置かれているか
+    const need = [
+      ['./manifest.json', 'アプリ名とアイコンの定義'],
+      ['./sw.js', 'オフライン起動'],
+      ['./icon-192.png', 'ホーム画面アイコン'],
+      ['./icon-512.png', 'ホーム画面アイコン'],
+      ['./icon-maskable-192.png', 'Androidの丸型切り抜き'],
+      ['./icon-maskable-512.png', 'Androidの丸型切り抜き'],
+      ['./apple-touch-icon.png', 'iOSアイコン']
+    ];
+    const missing = [];
+    for (const [path, why] of need){
+      const url = new URL(path, location.href).href;
+      let ok = false;
+      try { ok = (await fetch(url, { cache:'no-store' })).ok; } catch(e){}
+      if (!ok) missing.push(path.replace('./',''));
+      add(ok ? 'ok' : 'ng', `${path.replace('./','')}（${why}）`, ok ? null : `見つかりません: ${url}`);
+    }
+    if (missing.length){
+      add('ng', `${missing.length}個のファイルが未配置です`,
+        `index.html と同じ場所に ${missing.join('、')} を置いてください。すべて同じ階層（index.html と同じ場所）に置いてください。フォルダ分けは不要です。`);
+    }
+
+    // 6. Service Worker
     if ('serviceWorker' in navigator){
       const reg = await navigator.serviceWorker.getRegistration();
       add(reg ? 'ok' : (secure ? 'ng' : 'wm'), `Service Worker: ${reg ? '登録済み' : '未登録'}`,
-        reg ? `scope: ${reg.scope}` : 'https で開き直してからページを再読み込みしてください。');
+        reg ? `scope: ${reg.scope}`
+            : (window.__swError ? '登録エラー: ' + window.__swError : 'sw.js が置かれていないか、読み込みに失敗しています。'));
     } else add('ng', 'Service Worker 非対応のブラウザ', 'Chrome か Edge で開いてください。');
 
-    // 6. インストール可能判定
+    // 7. インストール可能判定
     const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
     if (standalone) add('ok', 'すでにホーム画面から起動中', null);
     else add(promptFired ? 'ok' : 'wm', `インストール要件の判定: ${promptFired ? '満たしている' : 'まだ通知が来ていない'}`,
@@ -2110,8 +2134,12 @@
 })();
 </script>
 <script>
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  window.__swError = null;
+  const swOK = location.protocol === 'https:'
+    || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if ('serviceWorker' in navigator && swOK) {
+    addEventListener('load', () => navigator.serviceWorker.register('./sw.js')
+      .catch(e => { window.__swError = (e && e.message) ? e.message : String(e); }));
   }
 </script>
 </body>
