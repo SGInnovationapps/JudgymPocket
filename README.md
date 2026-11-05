@@ -59,8 +59,8 @@ HTTPS 上で開き、iPhone は共有 → 「ホーム画面に追加」、Andro
 | 症状 | 原因 |
 |---|---|
 | ✕ 配信方法 | `file://` やローカルプレビューで開いている。https で配信しないとインストール扱いにならず、ただのショートカット（灰色の地球アイコン）になる |
-| ✕ manifest の取得に失敗 | ファイル名の誤り、`icons/` を push し忘れ、大文字小文字の違い（GitHub Pages は区別する） |
-| ✕ アイコンが取得できない | 同上。`icons/` フォルダがリポジトリに入っているか確認 |
+| ✕ manifest の取得に失敗 | ファイル名の誤り（`manifest.json` であること）、大文字小文字の違い（GitHub Pages は区別する） |
+| ✕ アイコンが取得できない | 同上。アイコン画像が index.html と同じ階層に置かれているか確認 |
 | ! まだ通知が来ていない | Chrome は数秒〜十数秒の閲覧のあとにインストール可否を判定する。再読み込みして少し待ってから、もう一度診断する |
 
 なお manifest は `.webmanifest` ではなく **`manifest.json`** にしてある。GitHub Pages が `.webmanifest` を正しい Content-Type で返さず、Android で無視される事例があるため。
@@ -85,15 +85,13 @@ git push -u origin main
 ```
 .
 ├── index.html              アプリ本体（HTML/CSS/JS すべて内包）
-├── manifest.json    アプリ名・アイコン・表示モード
+├── manifest.json           アプリ名・アイコン・表示モード
 ├── sw.js                   オフライン用 Service Worker
-├── .nojekyll               GitHub Pages の Jekyll 処理を無効化
-└── icons/
-    ├── icon-192.png / icon-512.png
-    ├── icon-maskable-192.png / icon-maskable-512.png   Android の丸型・角丸切り抜き用
-    ├── apple-touch-icon.png                            iOS ホーム画面用（180px）
-    ├── favicon.ico / favicon-32.png
-    └── icon.svg                                        元データ
+├── icon-192.png / icon-512.png
+├── icon-maskable-192.png / icon-maskable-512.png   Android の丸型・角丸切り抜き用
+├── apple-touch-icon.png                            iOS ホーム画面用（180px）
+├── favicon.ico / favicon-32.png
+└── icon.svg                                        元データ
 ```
 
 ## 更新するとき
@@ -103,6 +101,8 @@ git push -u origin main
 ## 動画書き出しについての注意
 
 書き出しは Canvas + MediaRecorder による等倍のリアルタイム合成。45 秒の動画なら書き出しにも 45 秒かかり、再エンコードのぶん多少画質が落ちる。出力形式は端末依存で、MP4 が使えない環境では WebM になる。
+
+完走を優先するため、スマホでは出力の長辺を 1280px に縮小し、ビットレートも端末と動画の長さに応じて下げる（iPhone は最大 4Mbps、録画データ全体で約 100MB 以内）。PC は長辺 1920px まで。書き出し中に一時停止すると録画も一時停止し、「再開」で続きから書き出す。
 
 合成される内容は、左上に最終Eスコア（Dスコアがあれば合計も併記）、右上に減点スタンプ、右下に難度スタンプ。スタンプはいずれも記録した時刻の 0.5 秒前から表示される。
 
