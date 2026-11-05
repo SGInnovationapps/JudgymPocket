@@ -688,6 +688,20 @@
   const stampTime = t => `${fmt(t)}.${String(Math.floor(Math.abs(t)%1*10))}`;
   const total = () => marks.reduce((s,m) => s+m.value, 0);
   const eScore = () => Math.max(0, 10 - total());
+  const errText = e => !e ? '不明なエラー'
+    : (e.name && e.message) ? `${e.name}: ${e.message}` : (e.message || String(e));
+
+  /* 未処理の例外を拾う。書き出し中は書き出しログに、それ以外はトーストに出して
+     「画面が無言で固まる」状態を避ける */
+  function reportErr(e){
+    const msg = errText(e);
+    try {
+      if (exporting) elog('未処理のエラー: ' + msg);
+      else toast('エラー: ' + msg);
+    } catch(_){}
+  }
+  addEventListener('error', e => reportErr(e.error || e.message));
+  addEventListener('unhandledrejection', e => reportErr(e.reason));
 
   /* ============ フレームのリングバッファ ============
      再生中は小さいキャンバスに10fpsで描き溜め、ボタンを押した瞬間に
@@ -723,22 +737,38 @@
   const clearRing = () => { ring.length = 0; ringPos = 0; lastSample = -1; };
   v.addEventListener('seeking', clearRing);
 
-  (function loop(){ if (!v.paused && !v.ended) sample(); requestAnimationFrame(loop); })();
+  // 例外が出てもループ自体は止めない（先に次フレームを予約してから処理する）
+  (function loop(){
+    requestAnimationFrame(loop);
+    try { if (!v.paused && !v.ended) sample(); } catch(e){}
+  })();
 
   /* 裏 video でのシーク取得(フォールバック) */
   const shadow = document.createElement('video');
   shadow.muted = true; shadow.playsInline = true; shadow.preload = 'auto';
+  const FULL_MAX = 1920;   // 元解像度スクショの長辺上限（4K動画で巨大な canvas を作らない）
   let queue = Promise.resolve();
   function grabBySeek(target, height){
-    queue = queue.then(() => new Promise(res => {
+    const job = queue.then(() => new Promise(res => {
       let done = false;
-      const finish = ok => { if (done) return; done = true; cleanup(); res(ok ? snap() : null); };
+      // snap() が例外を投げても必ず resolve する（resolve しないとキューが永久に詰まる）
+      const finish = ok => {
+        if (done) return; done = true; cleanup();
+        let c = null;
+        if (ok){ try { c = snap(); } catch(e){ c = null; } }
+        res(c);
+      };
       const snap = () => {
         if (!shadow.videoWidth) return null;
+        let h = height || shadow.videoHeight;
+        let w = Math.round(h * shadow.videoWidth / shadow.videoHeight);
+        if (!height){
+          const k = Math.min(1, FULL_MAX / Math.max(w, h));
+          w = Math.round(w * k); h = Math.round(h * k);
+        }
         const c = document.createElement('canvas');
-        c.height = height || shadow.videoHeight;
-        c.width = Math.round(c.height * shadow.videoWidth / shadow.videoHeight);
-        c.getContext('2d').drawImage(shadow, 0, 0, c.width, c.height);
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(shadow, 0, 0, w, h);
         return c;
       };
       const onSeeked = () => finish(true);
@@ -746,9 +776,12 @@
       shadow.addEventListener('seeked', onSeeked);
       const timer = setTimeout(() => finish(false), 2500);
       try { shadow.currentTime = target; } catch(e){ finish(false); }
-    }));
-    return queue;
+    })).catch(() => null);
+    queue = job;   // job は reject しないので、1回の失敗で以降が全部止まることはない
+    return job;
   }
+  // canvas のメモリを即時に手放す（iOS Safari は width/height を 0 にしないと解放が遅れる）
+  const freeCanvas = c => { if (c){ c.width = 0; c.height = 0; } };
 
   /* ============ 動画読み込み ============ */
   $('#pick').onclick = () => file.click();
@@ -763,9 +796,13 @@
   });
   file.onchange = e => { if (e.target.files[0]) loadVideo(e.target.files[0]); };
 
+  let videoURL = null;
   function loadVideo(f){
+    if (exporting){ toast('書き出し中は動画を変更できません'); file.value = ''; return; }
     fileName = f.name.replace(/\.[^.]+$/, '') || 'routine';
-    const url = URL.createObjectURL(f);
+    dropFull();
+    if (videoURL) URL.revokeObjectURL(videoURL);   // 前の動画の参照を解放
+    const url = videoURL = URL.createObjectURL(f);
     v.src = url; shadow.src = url; shadow.load(); v.load();
     v.classList.remove('hidden');
     $('#ctrl').classList.remove('hidden');
@@ -790,6 +827,7 @@
   }
   const track = $('#track');
   const seek = e => {
+    if (exporting) return;   // 書き出し中にシークすると録画が飛ぶ
     const r = track.getBoundingClientRect();
     const x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
     if (v.duration) v.currentTime = Math.min(v.duration, Math.max(0, x / r.width * v.duration));
@@ -902,7 +940,7 @@
     const pad = Math.round(W * 0.025);
     const fs = Math.max(16, Math.round(H * 0.062));
     ctx.font = `800 ${fs}px -apple-system,"Hiragino Sans",system-ui,sans-serif`;
-    const label = '\u2212' + m.label;
+    const label = '−' + m.label;
     const tw = ctx.measureText(label).width + fs * 0.9, th = fs * 1.5;
     ctx.fillStyle = COLORS[m.label];
     roundRect(ctx, W - pad - tw, pad, tw, th, th * 0.25); ctx.fill();
@@ -919,49 +957,95 @@
     return c;
   }
 
+  /* 元解像度の canvas は 1 枚 8MB 前後あるので、表示中の 1 枚だけを保持する。
+     以前は減点ごとに m.full として全件保持していた（10件で約80MB）。 */
+  let fullCache = null;   // { m, c }
+  function dropFull(){
+    if (fullCache){ freeCanvas(fullCache.c); fullCache = null; }
+  }
+  const cachedFull = m => (fullCache && fullCache.m === m) ? fullCache.c : null;
+  async function getFull(m){
+    const hit = cachedFull(m);
+    if (hit) return hit;
+    const c = await fullShot(m);
+    if (c){ dropFull(); fullCache = { m, c }; }
+    return c;
+  }
+  // 一括処理用: キャッシュ済みならそれを使い、使い終わったら（キャッシュ以外は）解放する
+  async function withFull(m, fn){
+    const hit = cachedFull(m);
+    const c = hit || await fullShot(m);
+    if (!c) return null;
+    try { return await fn(c); } finally { if (!hit) freeCanvas(c); }
+  }
+
   const shotName = m => {
     const i = [...marks].sort((a,b) => a.at - b.at).indexOf(m) + 1;
     return `${fileName}_${String(i).padStart(2,'0')}_${m.label}_${stampTime(m.shot).replace(':','-')}.png`;
   };
-  const toBlob = c => new Promise(r => c.toBlob(r, 'image/png'));
+  const toBlob = c => new Promise(r => { try { c.toBlob(r, 'image/png'); } catch(e){ r(null); } });
+
+  function downloadBlob(blob, name, keepMs){
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), keepMs || 4000);
+  }
+
+  // 共有シートを優先し、使えない／ユーザー操作の期限切れで拒否された場合はダウンロードに切り替える
+  async function shareOrDownload(files){
+    if (navigator.canShare && files.length && navigator.canShare({ files })){
+      try { await navigator.share({ files, title: files.length === 1 ? files[0].name : fileName }); return true; }
+      catch(e){ if (e && e.name === 'AbortError') return false; }
+    }
+    for (const f of files){
+      downloadBlob(f, f.name);
+      if (files.length > 1) await new Promise(r => setTimeout(r, 400));
+    }
+    return true;
+  }
 
   async function saveCanvas(canvas, name){
+    if (!canvas) return false;
     const blob = await toBlob(canvas);
     if (!blob) return false;
-    const f = new File([blob], name, { type: 'image/png' });
-    if (navigator.canShare && navigator.canShare({ files: [f] })){
-      try { await navigator.share({ files: [f], title: name }); return true; } catch(e){ return false; }
-    }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = name; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-    return true;
+    return shareOrDownload([new File([blob], name, { type: 'image/png' })]);
   }
 
   async function openShot(m){
     viewing = m;
-    $('#svTitle').textContent = `\u2212${m.label} の場面`;
+    $('#svTitle').textContent = `−${m.label} の場面`;
     $('#svSub').textContent = `押した位置 ${stampTime(m.at)} / 切り出し ${stampTime(m.shot)}`;
     const box = $('#svBox'); box.innerHTML = '';
     if (m.thumb){ const p = document.createElement('canvas'); p.width = m.thumb.width; p.height = m.thumb.height;
       p.getContext('2d').drawImage(m.thumb, 0, 0); box.appendChild(p); }
     $('#shotView').classList.add('on');
-    const full = await fullShot(m);
-    if (full){ m.full = full; box.innerHTML = ''; box.appendChild(full); }
+    const full = await getFull(m);
+    // 取得中に別のスクショへ切り替わっていたら表示しない
+    if (full && viewing === m && $('#shotView').classList.contains('on')){ box.innerHTML = ''; box.appendChild(full); }
   }
-  $('#svClose').onclick = () => $('#shotView').classList.remove('on');
-  $('#svSeek').onclick = () => { if (viewing){ v.currentTime = viewing.shot; $('#shotView').classList.remove('on'); } };
+  const closeShot = () => { $('#shotView').classList.remove('on'); $('#svBox').innerHTML = ''; dropFull(); };
+  $('#svClose').onclick = closeShot;
+  $('#svSeek').onclick = () => {
+    if (!viewing) return;
+    if (exporting){ toast('書き出し中は再生位置を変えられません'); return; }
+    v.currentTime = viewing.shot; closeShot();
+  };
   $('#svDel').onclick = () => {
     if (!viewing) return;
     marks = marks.filter(x => x.id !== viewing.id);
-    redrawShots(); render(); $('#shotView').classList.remove('on');
+    redrawShots(); render(); closeShot();
   };
   $('#svSave').onclick = async () => {
-    if (!viewing) return;
+    const m = viewing;
+    if (!m) return;
     const b = $('#svSave'), t = b.textContent; b.textContent = '準備中…';
-    const c = viewing.full || await fullShot(viewing);
-    await saveCanvas(c, shotName(viewing));
-    b.textContent = t;
+    try {
+      const c = await getFull(m);
+      if (!c){ toast('画像を取得できませんでした'); return; }
+      await saveCanvas(c, shotName(m));
+    } catch(e){ toast('保存に失敗しました: ' + errText(e)); }
+    finally { b.textContent = t; }
   };
 
   $('#mSaveAll').onclick = async () => {
@@ -969,24 +1053,16 @@
     const b = $('#mSaveAll'), t = b.textContent;
     const list = [...marks].sort((a,b2) => a.at - b2.at);
     const files = [];
-    for (let i = 0; i < list.length; i++){
-      b.textContent = `準備中… ${i+1}/${list.length}`;
-      const c = list[i].full || await fullShot(list[i]);
-      if (!c) continue;
-      list[i].full = c;
-      const blob = await toBlob(c);
-      if (blob) files.push(new File([blob], shotName(list[i]), { type: 'image/png' }));
-    }
-    b.textContent = t;
-    if (navigator.canShare && files.length && navigator.canShare({ files })){
-      try { await navigator.share({ files, title: fileName }); return; } catch(e){ return; }
-    }
-    for (const f of files){
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(f); a.download = f.name; a.click();
-      await new Promise(r => setTimeout(r, 400));
-      URL.revokeObjectURL(a.href);
-    }
+    try {
+      for (let i = 0; i < list.length; i++){
+        b.textContent = `準備中… ${i+1}/${list.length}`;
+        const blob = await withFull(list[i], toBlob);
+        if (blob) files.push(new File([blob], shotName(list[i]), { type: 'image/png' }));
+      }
+      if (files.length < list.length) toast(`${list.length - files.length}件は画像を取得できませんでした`);
+      if (files.length) await shareOrDownload(files);
+    } catch(e){ toast('保存に失敗しました: ' + errText(e)); }
+    finally { b.textContent = t; }
   };
 
   $('#mSheet').onclick = async () => {
@@ -995,33 +1071,43 @@
     const list = [...marks].sort((a,b2) => a.at - b2.at);
     const cols = list.length <= 2 ? 1 : 2, cw = 720;
     const shots = [];
-    for (let i = 0; i < list.length; i++){
-      b.textContent = `準備中… ${i+1}/${list.length}`;
-      const c = list[i].full || await fullShot(list[i]);
-      if (c){ list[i].full = c; shots.push(c); }
-    }
-    b.textContent = t;
-    if (!shots.length) return;
-    const ch = Math.round(cw * shots[0].height / shots[0].width);
-    const rows = Math.ceil(shots.length / cols), gap = 14, head = 96;
-    const sheet = document.createElement('canvas');
-    sheet.width = cols * cw + gap * (cols + 1);
-    sheet.height = head + rows * ch + gap * (rows + 1);
-    const x = sheet.getContext('2d');
-    x.fillStyle = '#0A1B44'; x.fillRect(0, 0, sheet.width, sheet.height);
-    x.fillStyle = '#fff'; x.textBaseline = 'middle';
-    x.textAlign = 'left';
-    x.font = '800 40px -apple-system,"Hiragino Sans",system-ui,sans-serif';
-    x.fillText(fileName, gap + 8, head / 2);
-    x.textAlign = 'right';
-    x.font = '800 44px -apple-system,system-ui,sans-serif';
-    x.fillText(`E ${eScore().toFixed(2)}　減点 ${total().toFixed(1)}`, sheet.width - gap - 8, head / 2);
-    shots.forEach((c, i) => {
-      const px = gap + (i % cols) * (cw + gap);
-      const py = head + gap + Math.floor(i / cols) * (ch + gap);
-      x.drawImage(c, px, py, cw, ch);
-    });
-    await saveCanvas(sheet, `${fileName}_scores_E${eScore().toFixed(2)}.png`);
+    try {
+      for (let i = 0; i < list.length; i++){
+        b.textContent = `準備中… ${i+1}/${list.length}`;
+        // 一覧では幅720pxにしか描かないので、取得した直後に縮小して元解像度の canvas は捨てる
+        const small = await withFull(list[i], c => {
+          const s = document.createElement('canvas');
+          s.width = cw; s.height = Math.round(cw * c.height / c.width);
+          s.getContext('2d').drawImage(c, 0, 0, s.width, s.height);
+          return s;
+        });
+        if (small) shots.push(small);
+      }
+      if (!shots.length){ toast('画像を取得できませんでした'); return; }
+      const ch = shots[0].height;
+      const rows = Math.ceil(shots.length / cols), gap = 14, head = 96;
+      const sheet = document.createElement('canvas');
+      sheet.width = cols * cw + gap * (cols + 1);
+      sheet.height = head + rows * ch + gap * (rows + 1);
+      const x = sheet.getContext('2d');
+      x.fillStyle = '#0A1B44'; x.fillRect(0, 0, sheet.width, sheet.height);
+      x.fillStyle = '#fff'; x.textBaseline = 'middle';
+      x.textAlign = 'left';
+      x.font = '800 40px -apple-system,"Hiragino Sans",system-ui,sans-serif';
+      x.fillText(fileName, gap + 8, head / 2);
+      x.textAlign = 'right';
+      x.font = '800 44px -apple-system,system-ui,sans-serif';
+      x.fillText(`E ${eScore().toFixed(2)}　減点 ${total().toFixed(1)}`, sheet.width - gap - 8, head / 2);
+      shots.forEach((c, i) => {
+        const px = gap + (i % cols) * (cw + gap);
+        const py = head + gap + Math.floor(i / cols) * (ch + gap);
+        x.drawImage(c, px, py, cw, ch);
+      });
+      shots.forEach(freeCanvas);
+      await saveCanvas(sheet, `${fileName}_scores_E${eScore().toFixed(2)}.png`);
+      freeCanvas(sheet);
+    } catch(e){ toast('保存に失敗しました: ' + errText(e)); }
+    finally { b.textContent = t; }
   };
 
   /* ============ メニュー / 設定 ============ */
@@ -1033,7 +1119,7 @@
   $('#mSettings').onclick = () => { $('#menu').classList.remove('on'); $('#settings').classList.add('on'); };
   $('#closeSet').onclick = () => $('#settings').classList.remove('on');
   $('#mReset').onclick = () => {
-    marks = []; dRecs = []; clearPend();
+    marks = []; dRecs = []; clearPend(); dropFull();
     redrawShots(); render(); renderD();
     $('#menu').classList.remove('on');
   };
@@ -1172,7 +1258,7 @@
   /* ============ 保存(結果) ============ */
   $('#save').onclick = () => {
     const t = total(), c = cfg();
-    v.pause();
+    if (!exporting) v.pause();   // 書き出し中に止めると録画も一時停止してしまう
     $('#eScore').textContent = eScore().toFixed(2);
     $('#eCalc').textContent = '10.00 − ' + t.toFixed(1) + (c.d ? '　/　D ' + c.d.toFixed(1) + ' → 合計 ' + (eScore()+c.d).toFixed(2) : '');
     $('#resSub').textContent = fileName + '　減点 ' + marks.length + '件';
@@ -1211,13 +1297,16 @@
   }
 
   /* ============ スタンプ焼き込み書き出し ============ */
-  function pickMime(){
+  /* 録画形式の候補（上から優先）。対応しているものを全部返し、録画エラー時は次の候補でやり直せるようにする。
+     H.264 は Level 4.0（42E028）を指定する。以前の 42E01E は Baseline Level 3.0 で、規格上は
+     720×576 程度までしか想定しておらず、1080p で録画する指定と矛盾していた */
+  function supportedMimes(){
+    if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return [];
     const list = [
-      'video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1.42E01E','video/mp4',
-      'video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'
+      'video/mp4;codecs=avc1.42E028,mp4a.40.2', 'video/mp4;codecs=avc1.42E028', 'video/mp4',
+      'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'
     ];
-    if (!window.MediaRecorder) return '';
-    return list.find(m => { try { return MediaRecorder.isTypeSupported(m); } catch(e){ return false; } }) || '';
+    return list.filter(m => { try { return MediaRecorder.isTypeSupported(m); } catch(e){ return false; } });
   }
 
   // 減点スタンプ: 右上に小さく、右からスライドイン
@@ -1407,8 +1496,12 @@
     ctx.restore();
   }
 
+  // Dスコアが付いているか（跳馬は技の選択、他の種目は記録の有無）。判定はここだけで行う
+  function hasD(){ return app.vault ? !!vaultPick : dRecs.length > 0; }
+  function currentD(){ return hasD() ? calcD().total / 10 : null; }
+
   function buildSummary(){
-    const has = app.vault ? !!vaultPick : dRecs.length > 0;
+    const has = hasD();
     const res = has ? calcD() : null;
     const lines = [];
     if (res){
@@ -1428,6 +1521,13 @@
 
   /* --- 書き出し本体 --- */
   let expState = null, wakeLock = null, activeStop = null, exporting = false;
+  let outURL = null;   // 書き出し結果の blob URL。プレビューと「別タブ」で共用し、次の書き出し開始時に解放する
+  function setOutput(blob){
+    if (outURL){ URL.revokeObjectURL(outURL); outURL = null; }
+    $('#expPrev').innerHTML = '';
+    blobOut = blob;
+    if (blob) outURL = URL.createObjectURL(blob);
+  }
   function setProgress(p, text){
     $('#bar').style.width = p + '%';
     $('#pct').textContent = text;
@@ -1437,9 +1537,28 @@
   const logLines = [];
   const elog = (s) => { logLines.push(s); $('#expLog').textContent = logLines.join('\n'); };
 
+  // 開始ボタン行: 'ready' 開始(やり直す/再開)＋やめる / 'running' やめるのみ / 'none' 非表示
+  function startRow(mode){
+    $('#startWrap').style.display = mode === 'none' ? 'none' : '';
+    $('#expStart').style.display = mode === 'running' ? 'none' : '';
+  }
+
+  async function holdWake(){
+    if (!navigator.wakeLock || !navigator.wakeLock.request || document.hidden || wakeLock) return;
+    try {
+      const l = await navigator.wakeLock.request('screen');
+      if (exporting) wakeLock = l; else l.release();
+    } catch(e){ elog('画面の常時点灯: 使えません（' + errText(e) + '）'); }
+  }
+  function releaseWake(){
+    if (wakeLock){ try { wakeLock.release(); } catch(e){} wakeLock = null; }
+  }
+
   $('#export').onclick = () => doExport();
   $('#cancelExp').onclick = () => {
+    if (exporting && activeStop) activeStop('「やめる」が押された', 'cancel');
     $('#exporting').classList.remove('on');
+    $('#askD').classList.remove('on');
     $('#expBar').classList.add('hidden');
     expState = null;
   };
@@ -1449,13 +1568,44 @@
     $('#expBar').classList.remove('done');
   };
 
+  const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);   // iPadOS はMac扱いのUA
+  const IS_ANDROID = /Android/i.test(navigator.userAgent);
+
+  /* 出力の解像度とビットレート。画質より完走を優先する。
+     ・スマホは長辺1280まで。1080p/4K のまま毎フレーム canvas 合成＋エンコードすると iPhone で落ちやすい
+     ・録画データは終わるまで全部メモリに溜まるので、長い動画ほどビットレートを下げて総量を抑える */
+  function exportProfile(W, H, sec){
+    const mobile = IS_IOS || IS_ANDROID;
+    const cap = mobile ? 1280 : 1920;
+    const k = Math.min(1, cap / Math.max(W, H));
+    const even = n => Math.max(2, Math.round(n * k / 2) * 2);   // H.264 は偶数サイズが必要
+    const w = even(W), h = even(H), px = w * h;
+    let bps = px > 1280 * 720 ? 8e6 : px > 854 * 480 ? 5e6 : 2.5e6;
+    if (IS_IOS) bps = Math.min(bps, 4e6);
+    else if (mobile) bps = Math.min(bps, 5e6);
+    const budgetMB = IS_IOS ? 100 : mobile ? 150 : 400;
+    const byBudget = budgetMB * 8e6 / Math.max(1, sec);
+    const why = [];
+    if (k < 1) why.push(`長辺${cap}に縮小`);
+    if (byBudget < bps){ bps = Math.max(1.2e6, byBudget); why.push(`${Math.round(sec)}秒分を約${budgetMB}MBに収める`); }
+    return { w, h, bps: Math.round(bps), why: why.join('・') || '元のサイズ' };
+  }
+
   function doExport(){
     if (!v.duration){ alert('先に動画を選んでください。'); return; }
+    if (exporting){   // 書き出し中は進み具合を見せるだけ（やり直すと録画が壊れる）
+      $('#result').classList.remove('on');
+      $('#exporting').classList.add('on');
+      $('#expBar').classList.add('hidden');
+      return;
+    }
     logLines.length = 0;
     $('#expLog').textContent = '';
-    $('#expPrev').innerHTML = '';
+    setOutput(null);   // 前回の書き出し結果（数十MB）を手放してから始める
     $('#saveAct').style.display = 'none';
-    $('#startWrap').style.display = '';
+    startRow('ready');
+    $('#expStart').textContent = '書き出しを開始';
     $('#bar').style.width = '0%';
     $('#pct').textContent = '—';
     $('#expBar').classList.add('hidden');
@@ -1465,30 +1615,36 @@
     $('#result').classList.remove('on');
     $('#exporting').classList.add('on');
 
-    const mime = pickMime();
-    outExt = mime.includes('mp4') ? 'mp4' : 'webm';
-    elog(`端末: ${navigator.userAgent.slice(0, 70)}`);
-    elog(`解像度: ${v.videoWidth}×${v.videoHeight} / 長さ: ${fmt(v.duration)}`);
-    elog(`形式: ${mime || '対応形式なし'}`);
-    elog(`MediaRecorder: ${window.MediaRecorder ? 'あり' : 'なし'} / canvas.captureStream: ${HTMLCanvasElement.prototype.captureStream ? 'あり' : 'なし'}`);
+    const mimes = supportedMimes();
+    elog(`端末: ${navigator.userAgent.slice(0, 120)}`);
+    elog(`解像度: ${v.videoWidth}×${v.videoHeight} / 長さ: ${fmt(v.duration)}（${(+v.duration).toFixed(2)}秒）`);
+    elog(`形式: ${mimes[0] || '対応形式なし'}${mimes.length > 1 ? `（予備 ${mimes.length - 1}件）` : ''}`);
+    elog(`MediaRecorder: ${window.MediaRecorder ? 'あり' : 'なし'} / canvas.captureStream: ${HTMLCanvasElement.prototype.captureStream ? 'あり' : 'なし'} / pause: ${window.MediaRecorder && MediaRecorder.prototype.pause ? 'あり' : 'なし'}`);
 
-    if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream || !mime){
-      $('#startWrap').style.display = 'none';
+    if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream || !mimes.length){
+      startRow('none');
       $('#expSub').textContent = 'このブラウザは動画の書き出しに対応していません。Chrome、または iOS 15 以降の Safari でお試しください。スクリーンショットの保存は利用できます。';
       return;
     }
     $('#expSub').textContent = `書き出しには動画と同じ ${fmt(v.duration)} 前後かかります。開始を押すと最初から再生され、終わるまで画面を切り替えないでください。`;
     v.pause();
     try { v.currentTime = 0; } catch(e){}
-    expState = { mime };
+    expState = { mimes };
   }
 
-  // 開始はユーザー操作の中で play() を呼ぶ必要がある(Safari対策)
+  // 開始はユーザー操作の中で play() を呼ぶ必要がある(Safari対策)。一時停止中は「再開」ボタンを兼ねる
   $('#expStart').onclick = () => {
+    if (exporting){
+      const p = v.play();
+      if (p && p.catch) p.catch(e => elog('再開できません: ' + errText(e)));
+      return;
+    }
     if (!expState) return;
-    $('#startWrap').style.display = 'none';
+    startRow('running');
+    $('#expTitle').textContent = '動画の書き出し';
     $('#pct').textContent = '開始しています…';
-    try { runCapture(expState.mime); }
+    if (logLines.length > 4) elog('--- やり直し ---');
+    try { runCapture(expState.mimes[0]); }
     catch(err){ failExport(err); return; }
     setTimeout(() => { if (exporting) $('#askD').classList.add('on'); }, 400);
   };
@@ -1507,198 +1663,326 @@
   };
 
   function failExport(err){
-    elog('エラー: ' + (err && err.message ? err.message : String(err)));
+    elog('エラー: ' + errText(err));
+    // 録画そのものが失敗した場合は、やり直し時に次の形式を使う
+    if (err && err.recorder && expState && expState.mimes.length > 1){
+      expState.mimes.shift();
+      elog(`やり直すと形式を ${expState.mimes[0]} に切り替えます`);
+    }
+    if (activeStop){ try { activeStop('エラーのため中断', 'fail'); } catch(e){ elog('停止処理でエラー: ' + errText(e)); } }
+    activeStop = null;
     exporting = false;
     $('#expBar').classList.add('hidden');
+    $('#expBar').classList.remove('done');
     $('#askD').classList.remove('on');
     $('#exporting').classList.add('on');
-    if (activeStop){ try { activeStop('エラーのため中断'); } catch(e){} activeStop = null; }
     try { v.pause(); } catch(e){}
     $('#expTitle').textContent = '書き出しに失敗しました';
-    $('#pct').textContent = '失敗';
-    $('#startWrap').style.display = '';
+    $('#pct').textContent = '失敗（原因は下のログに出ています）';
+    startRow(expState ? 'ready' : 'none');
     $('#expStart').textContent = 'やり直す';
-    if (wakeLock){ try { wakeLock.release(); } catch(e){} wakeLock = null; }
+    releaseWake();
   }
+  const recorderError = (what, e) => {
+    const x = new Error(`${what}（${errText(e)}）`);
+    x.recorder = true;
+    return x;
+  };
 
-  /* --- 音声トラックの取得 --- */
-  // iOS Safari には video.captureStream() が無いので、Web Audio 経由で取り出す
-  let audioCtx = null, srcNode = null, expDest = null, monitorGain = null;
-  function getAudio(){
-    try {
-      if (v.captureStream){
-        const t = v.captureStream().getAudioTracks();
-        if (t.length) return { tracks: t, how: `captureStream(${t.length})` };
-      }
-    } catch(e){}
-    try {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return { tracks: [], how: 'Web Audio 非対応' };
-      if (!audioCtx) audioCtx = new AC();
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-      if (!srcNode){
-        srcNode = audioCtx.createMediaElementSource(v);
-        expDest = audioCtx.createMediaStreamDestination();
-        monitorGain = audioCtx.createGain();
-        srcNode.connect(expDest);                    // 録画には原音のまま
-        srcNode.connect(monitorGain);
-        monitorGain.connect(audioCtx.destination);   // 再生音は絞れるように
-      }
-      const t = expDest.stream.getAudioTracks();
-      return { tracks: t, how: t.length ? `Web Audio(${t.length})` : 'Web Audio だが音声なし' };
-    } catch(e){
-      return { tracks: [], how: '取得不可: ' + e.message };
+  /* --- 音声トラックの取得 ---
+     録画に渡す音声は、常に Web Audio の MediaStreamDestination から出す。
+       ・動画が終わっても無音で途切れずに続くので、まとめ画面の間も音声トラックが生きている
+         （以前は Chrome で動画の音声トラックを直接渡しており、動画終端で音声トラックが終了していた）
+       ・音声のない動画でも無音トラックが付く
+     元の音の取り出し方:
+       Chrome/Android: video.captureStream() の音声 → MediaStreamSource（通常再生の経路は変えない）
+       iOS Safari    : captureStream が無いので createMediaElementSource(v)。一度作ると以後の通常再生も
+                       AudioContext 経由になるため、AudioContext が止まっていたら再生・タップ時に resume() する */
+  let audioCtx = null, elemSrc = null, expDest = null, monitorGain = null;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  function wakeAudio(){
+    if (audioCtx && audioCtx.state !== 'running' && audioCtx.state !== 'closed'){
+      try { const p = audioCtx.resume(); if (p && p.catch) p.catch(() => {}); } catch(e){}
     }
   }
+  v.addEventListener('play', wakeAudio);
+  document.addEventListener('pointerdown', wakeAudio, true);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) wakeAudio(); });
+
+  function getAudio(){
+    const none = how => ({ tracks: [], how, cleanup(){} });
+    if (!AC){
+      // Web Audio が無い環境だけは動画の音声トラックを直接使う
+      try {
+        if (v.captureStream){
+          const t = v.captureStream().getAudioTracks();
+          return { tracks: t, how: `captureStream(${t.length})`, cleanup(){} };
+        }
+      } catch(e){}
+      return none('Web Audio 非対応');
+    }
+    try {
+      if (!audioCtx) audioCtx = new AC();
+      wakeAudio();
+      if (!expDest){
+        expDest = audioCtx.createMediaStreamDestination();
+        // 入力が何も繋がっていない Destination は Chrome で音声データを出さず、mp4 の多重化が
+        // 音声待ちで映像を捨ててしまう（音声なし動画で出力が途中までになるのを実測）。
+        // 常に「無音を流し続ける入力」を 1 本繋いでおく
+        try {
+          const keep = audioCtx.createConstantSource ? audioCtx.createConstantSource() : audioCtx.createOscillator();
+          const mute = audioCtx.createGain();
+          if (keep.offset) keep.offset.value = 0;
+          mute.gain.value = 0;
+          keep.connect(mute); mute.connect(expDest); keep.start();
+        } catch(e){}
+      }
+      let how, cleanup = () => {};
+      let cap = [];
+      if (!elemSrc && v.captureStream){
+        try { cap = v.captureStream().getAudioTracks(); } catch(e){ cap = []; }
+      }
+      if (cap.length){
+        const node = audioCtx.createMediaStreamSource(new MediaStream(cap));
+        node.connect(expDest);
+        cleanup = () => {
+          try { node.disconnect(); } catch(e){}
+          cap.forEach(t => { try { t.stop(); } catch(e){} });
+        };
+        how = `captureStream → Web Audio(${cap.length})`;
+      } else if (elemSrc || !v.captureStream){
+        if (!elemSrc){
+          elemSrc = audioCtx.createMediaElementSource(v);
+          monitorGain = audioCtx.createGain();
+          elemSrc.connect(expDest);                    // 録画には原音のまま
+          elemSrc.connect(monitorGain);
+          monitorGain.connect(audioCtx.destination);   // 再生音は絞れるように
+        }
+        how = 'MediaElementSource → Web Audio';
+      } else {
+        how = '動画に音声なし（無音トラックを付ける）';
+      }
+      const t = expDest.stream.getAudioTracks();
+      return { tracks: t, how: `${how} / AudioContext ${audioCtx.state}`, cleanup };
+    } catch(e){
+      return none('取得不可: ' + errText(e));
+    }
+  }
+
+  const STALL_LIMIT = 40;   // 再生中なのに位置が進まない状態が 0.5秒×40 = 20秒 続いたら失敗とする
 
   function runCapture(mime){
     const c = cfg();
     const finalE = eScore();
-    const finalD = dRecs.length ? calcD().total / 10 : null;
+    const finalD = currentD();   // 跳馬（技を選ぶだけで dRecs は空）も含めて hasD() で判定
     const stamps = marks.map(m => ({ ...m, show: m.shot })).sort((a,b) => a.show - b.show);
     const dstamps = dRecs.filter(r => r.at > 0)
       .map(r => ({ ...r, show: Math.max(0, r.at - c.offset), text: ROM[r.g] + r.d }))
       .sort((a,b) => a.show - b.show);
 
-    const W = v.videoWidth, H = v.videoHeight;
-    if (!W || !H) throw new Error('動画のサイズを取得できません');
+    const VW = v.videoWidth, VH = v.videoHeight, dur = v.duration;
+    if (!VW || !VH) throw new Error('動画のサイズを取得できません');
+    const outroSec = c.outro;
+    const prof = exportProfile(VW, VH, (isFinite(dur) ? dur : 60) + outroSec);
+    const W = prof.w, H = prof.h;
+    elog(`出力: ${W}×${H} / ${(prof.bps / 1e6).toFixed(1)} Mbps（${prof.why}）`);
+    outExt = mime.includes('mp4') ? 'mp4' : 'webm';
+
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(v, 0, 0, W, H);
+    if (!ctx) throw new Error('canvas を作れません（メモリ不足の可能性）');
+    if (v.currentTime > 0.05){ try { v.currentTime = 0; } catch(e){} }   // やり直し時も先頭から
+    try { ctx.drawImage(v, 0, 0, W, H); } catch(e){}
 
     const stream = canvas.captureStream(30);
     const au = getAudio();
-    au.tracks.forEach(t => { try { stream.addTrack(t); } catch(e){} });
+    au.tracks.forEach(t => { try { stream.addTrack(t); } catch(e){ elog('音声トラックを追加できません: ' + errText(e)); } });
     elog('音声: ' + au.how);
 
     const chunks = [];
-    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000 });
-    let stopped = false;
-    const stop = why => {
-      if (stopped) return;
-      stopped = true;
-      elog('停止: ' + why);
-      clearInterval(watch);
-      v.removeEventListener('ended', onEnd);
-      if (rec.state !== 'inactive') rec.stop();
-    };
-    const outroSec = c.outro;
-    let outroAt = null;
-    const summary = buildSummary();
-    const onEnd = () => { if (!outroSec) stop('動画の終端'); };
-    v.addEventListener('ended', onEnd);
-    activeStop = stop;
+    let bytes = 0, rec;
+    try { rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: prof.bps, audioBitsPerSecond: 128000 }); }
+    catch(e){ au.cleanup(); throw recorderError('録画を準備できません', e); }
 
-    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-    rec.onerror = e => failExport(e.error || new Error('MediaRecorder エラー'));
-    rec.onstop = () => {
-      v.volume = 1;
+    let stopped = false, finished = false, endMode = null, watch = null;
+    let outroAt = null, summary = null, hiddenWhilePlaying = false;
+    const offs = [];
+    const on = (target, type, fn) => { target.addEventListener(type, fn); offs.push(() => target.removeEventListener(type, fn)); };
+    const pos = () => `${v.currentTime.toFixed(1)}秒`;
+
+    // 録画が止まったあとの後始末と結果表示（rec.onstop、または録画が既に止まっている場合に直接呼ぶ）
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      au.cleanup();
+      try { v.volume = 1; } catch(e){}
       if (monitorGain) monitorGain.gain.value = 1;
-      if (wakeLock){ try { wakeLock.release(); } catch(e){} wakeLock = null; }
-      const blob = new Blob(chunks, { type: mime });
-      elog(`データ: ${chunks.length}個 / ${(blob.size/1048576).toFixed(1)} MB`);
-      if (!blob.size){ failExport(new Error('データが空でした。別のブラウザでお試しください。')); return; }
-      blobOut = blob;
+      releaseWake();
+      exporting = false;
+      const blob = new Blob(chunks, { type: mime.split(';')[0] });
+      chunks.length = 0;
+      elog(`データ: ${(blob.size / 1048576).toFixed(1)} MB（${rec.mimeType || mime}）`);
+      if (endMode === 'cancel'){ elog('中止したため破棄しました'); return; }
+      if (endMode === 'fail'){ elog('途中までのデータは破棄しました'); return; }
+      if (!blob.size){ failExport(recorderError('データが空でした', new Error('別のブラウザ・形式でお試しください'))); return; }
+      setOutput(blob);
+      startRow('none');
       $('#expTitle').textContent = '書き出し完了';
       $('#bar').style.width = '100%';
-      $('#pct').textContent = `完了（${(blob.size/1048576).toFixed(1)} MB）`;
-      exporting = false;
+      $('#pct').textContent = `完了（${(blob.size / 1048576).toFixed(1)} MB）`;
       if (!$('#expBar').classList.contains('hidden')){
         $('#expBar').classList.add('done');
         $('#expBarText').textContent = '書き出し完了 — タップして保存';
         toast('書き出しが完了しました');
       }
       $('#saveAct').style.display = '';
-      const url = URL.createObjectURL(blob);
-      $('#expPrev').innerHTML = `<video src="${url}" controls playsinline preload="metadata"></video>`;
+      $('#expPrev').innerHTML = `<video src="${outURL}" controls playsinline preload="metadata"></video>`;
       $('#expSub').textContent = '下のプレビューで確認してから保存してください。保存できないときは「別タブで開く」から長押しで保存できます。';
     };
 
-    // 画面が消えると合成が止まるため、可能なら画面を点けたままにする
-    if (navigator.wakeLock && navigator.wakeLock.request){
-      navigator.wakeLock.request('screen').then(l => wakeLock = l).catch(() => {});
-    }
+    // how: 省略=正常終了 / 'fail' / 'cancel'
+    const stop = (why, how) => {
+      if (stopped) return;
+      stopped = true;
+      endMode = how || null;
+      if (activeStop === stop) activeStop = null;
+      clearInterval(watch);
+      offs.forEach(f => f()); offs.length = 0;
+      elog(`停止: ${why}（位置 ${pos()} / ${isFinite(dur) ? dur.toFixed(1) : '?'}秒・録画 ${rec.state}・受信 ${chunks.length}個 ${(bytes / 1048576).toFixed(1)} MB）`);
+      if (how === 'cancel'){ try { v.pause(); } catch(e){} }
+      try { if (rec.state !== 'inactive') rec.stop(); else finish(); }
+      catch(e){ elog('録画の停止でエラー: ' + errText(e)); finish(); }
+    };
+    activeStop = stop;
+
+    rec.ondataavailable = e => { if (e.data && e.data.size){ chunks.push(e.data); bytes += e.data.size; } };
+    rec.onerror = e => failExport(recorderError('録画エラー', e.error || e));
+    rec.onstop = finish;
+
+    /* 再生側の出来事。以前は一時停止すると「完了」扱いで録画を打ち切っていたため、
+       Dスコア記録中に止めただけで途中までの動画が「書き出し完了」として出ていた */
+    on(v, 'ended', () => { if (!outroSec) stop('動画の終端'); });
+    on(v, 'pause', () => {
+      if (stopped || v.ended) return;
+      if (rec.state === 'recording' && rec.pause){ try { rec.pause(); } catch(e){ elog('録画の一時停止に失敗: ' + errText(e)); } }
+      elog(`一時停止（${pos()}）→ 録画も一時停止`);
+      $('#pct').textContent = '一時停止中 — 「再開」で続きを書き出します';
+      $('#expBarText').textContent = '一時停止中　タップで詳細';
+      $('#expStart').textContent = '再開';
+      startRow('ready');
+    });
+    on(v, 'play', () => {
+      if (stopped) return;
+      if (rec.state === 'paused'){ try { rec.resume(); } catch(e){} elog(`再開（${pos()}）`); }
+      startRow('running');
+    });
+    on(v, 'waiting', () => elog(`読み込み待ち（${pos()}）`));
+    on(v, 'seeking', () => elog(`再生位置が変わりました（→${pos()}）`));
+    on(v, 'error', () => failExport(new Error('動画の再生エラー（' + (v.error ? `code ${v.error.code} ${v.error.message || ''}` : '詳細不明') + '）')));
+    on(document, 'visibilitychange', () => {
+      if (document.hidden){
+        hiddenWhilePlaying = !v.paused;
+        elog(`画面が裏に回りました（${pos()}）`);
+      } else {
+        elog(`画面に戻りました（${pos()}）`);
+        holdWake();
+        // 裏に回ったことで止められた再生は自動で再開を試みる（拒否されたら「再開」ボタンで続ける）
+        if (hiddenWhilePlaying && v.paused && !v.ended){
+          const p = v.play(); if (p && p.catch) p.catch(e => elog('自動再開できません: ' + errText(e)));
+        }
+        hiddenWhilePlaying = false;
+      }
+    });
+    if (audioCtx) on(audioCtx, 'statechange', () => elog('AudioContext: ' + audioCtx.state));
 
     if (monitorGain) monitorGain.gain.value = 0.15; else v.volume = 0.15;
     const playing = v.play();               // ユーザー操作の直後に同期的に呼ぶ
-    rec.start(250);
+    try { rec.start(1000); }
+    catch(e){ failExport(recorderError('録画を開始できません', e)); return; }
     exporting = true;
-    elog('録画開始');
+    elog(`録画開始（${rec.mimeType || mime}）`);
+    holdWake();
     if (playing && playing.catch) playing.catch(err => {
-      stop('再生できず');
-      failExport(new Error('動画を再生できませんでした（' + err.name + '）'));
+      if (stopped || (err && err.name === 'AbortError')) return;   // AbortError は直後の一時停止など
+      failExport(new Error('動画を再生できませんでした（' + errText(err) + '）'));
     });
 
     // rAF が止まっても検知できるように監視する
     let lastT = -1, stall = 0;
-    const watch = setInterval(() => {
+    watch = setInterval(() => {
       if (stopped) return;
-      if (v.currentTime === lastT) stall++; else stall = 0;
-      lastT = v.currentTime;
       if (outroAt !== null){
         if ((performance.now() - outroAt) / 1000 > outroSec + 3) stop('まとめ表示の監視');
-      } else if (v.ended){
-        if (!outroSec) stop('終端(監視)');
-      } else if (stall > 12) stop('進行が止まったため中断');
+        return;
+      }
+      if (v.ended){ if (!outroSec) stop('終端(監視)'); return; }
+      if (v.paused || document.hidden){ stall = 0; lastT = v.currentTime; return; }
+      if (v.currentTime === lastT) stall++; else stall = 0;
+      lastT = v.currentTime;
+      if (stall === 6) elog(`再生が3秒進んでいません（${pos()}・readyState ${v.readyState}）`);
+      if (stall >= STALL_LIMIT)
+        failExport(new Error(`再生が${STALL_LIMIT / 2}秒以上進まないため中断（${pos()}・readyState ${v.readyState}）`));
     }, 500);
 
+    const pctOf = t => (isFinite(dur) && dur > 0) ? Math.min(100, Math.round(t / dur * 100)) : 0;
     (function draw(){
       if (stopped) return;
       try {
-      if (outroAt !== null){
-        const age = (performance.now() - outroAt) / 1000;
-        drawSummary(ctx, W, H, summary, age);
-        $('#expBarText').textContent = 'まとめ表示中　タップで詳細';
-        $('#pct').textContent = 'まとめ表示中';
-        if (age >= outroSec){ stop('まとめ表示おわり'); return; }
+        if (outroAt !== null){
+          const age = (performance.now() - outroAt) / 1000;
+          drawSummary(ctx, W, H, summary, age);
+          $('#expBarText').textContent = 'まとめ表示中　タップで詳細';
+          $('#pct').textContent = 'まとめ表示中';
+          if (age >= outroSec){ stop('まとめ表示おわり'); return; }
+          requestAnimationFrame(draw);
+          return;
+        }
+        if (v.ended){
+          if (outroSec){
+            // 書き出し中に付けたDスコアも反映されるよう、まとめはこの時点の値で作る
+            summary = buildSummary();
+            outroAt = performance.now();
+            elog('まとめ表示 開始');
+            requestAnimationFrame(draw);
+          } else stop('終端');
+          return;
+        }
+        if (!v.paused){   // 一時停止中は録画も止めているので描き直さない
+          const t = v.currentTime;
+          ctx.drawImage(v, 0, 0, W, H);
+          let slot = 0;
+          for (const m of stamps){
+            const age = t - m.show;
+            if (age >= 0 && age <= c.dur){ m.slot = slot++; drawStamp(ctx, W, H, m, age, c.dur); }
+          }
+          let dslot = 0;
+          for (const m of dstamps){
+            const age = t - m.show;
+            if (age >= 0 && age <= c.dur){ m.slot = dslot++; drawDStamp(ctx, W, H, m, age, c.dur); }
+          }
+          drawHud(ctx, W, H, finalE, finalD);
+          setProgress(pctOf(t), pctOf(t) + '%');
+        }
         requestAnimationFrame(draw);
-        return;
-      }
-      const t = v.currentTime;
-      ctx.drawImage(v, 0, 0, W, H);
-      let slot = 0;
-      for (const m of stamps){
-        const age = t - m.show;
-        if (age >= 0 && age <= c.dur){ m.slot = slot++; drawStamp(ctx, W, H, m, age, c.dur); }
-      }
-      let dslot = 0;
-      for (const m of dstamps){
-        const age = t - m.show;
-        if (age >= 0 && age <= c.dur){ m.slot = dslot++; drawDStamp(ctx, W, H, m, age, c.dur); }
-      }
-      drawHud(ctx, W, H, finalE, finalD);
-      setProgress(Math.round(t / v.duration * 100), Math.round(t / v.duration * 100) + '%');
-      if (v.ended || v.paused){
-        if (v.ended && outroSec){ outroAt = performance.now(); requestAnimationFrame(draw); return; }
-        stop(v.ended ? '終端' : '一時停止');
-        return;
-      }
-      requestAnimationFrame(draw);
       } catch(err){ failExport(err); }
     })();
   }
 
   /* --- 保存 --- */
   const outName = () => {
-    const has = app.vault ? !!vaultPick : dRecs.length > 0;
-    const d = has ? `_D${p1(calcD().total)}` : '';
+    const d = hasD() ? `_D${p1(calcD().total)}` : '';
     return `${fileName}_E${eScore().toFixed(2)}${d}.${outExt}`;
   };
 
   $('#dl').onclick = () => {
     if (!blobOut) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blobOut);
-    a.download = outName();
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+    downloadBlob(blobOut, outName(), 60000);   // 大きい動画は保存に時間がかかるので長めに保持
     elog('ダウンロードを実行しました');
   };
   $('#openTab').onclick = () => {
-    if (!blobOut) return;
-    const url = URL.createObjectURL(blobOut);
-    const w = window.open(url, '_blank');
+    if (!blobOut || !outURL) return;
+    const w = window.open(outURL, '_blank');   // URL はプレビューと共用（次の書き出しで解放）
     if (!w) elog('別タブを開けませんでした（ポップアップがブロックされています）');
   };
   $('#share').onclick = async () => {
@@ -1708,14 +1992,13 @@
       try { await navigator.share({ files: [f], title: outName() }); elog('共有しました'); return; }
       catch(err){
         if (err && err.name === 'AbortError'){ elog('共有をキャンセルしました'); return; }
-        elog('共有に失敗: ' + (err && err.name) + ' → ダウンロードに切り替えます');
+        elog('共有に失敗: ' + errText(err) + ' → ダウンロードに切り替えます');
       }
     } else {
       elog('この端末はファイル共有に非対応 → ダウンロードに切り替えます');
     }
     $('#dl').click();
   };
-
   /* ============ Dスコア算出 ============ */
   const DV = { A:1, B:2, C:3, D:4, E:5, F:6, G:7, H:8, I:9 };
   const ROM = ['', 'Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ'];
@@ -1984,7 +2267,7 @@
         dRecs = dRecs.filter(x => x.id !== r.id);
         renderD();
       };
-      el.onclick = () => { if (v.duration && r.at) v.currentTime = r.at; };
+      el.onclick = () => { if (v.duration && r.at && !exporting) v.currentTime = r.at; };
       box.appendChild(el);
     });
     box.scrollLeft = box.scrollWidth;
@@ -2028,7 +2311,7 @@
 
   /* --- 算出 --- */
   $('#calc').onclick = () => {
-    if (app.vault ? !vaultPick : !dRecs.length){
+    if (!hasD()){
       toast(app.vault ? '技を一覧から選んでください' : '技が記録されていません');
       return;
     }
